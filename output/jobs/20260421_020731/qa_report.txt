@@ -1,0 +1,26 @@
+Total issues: 1
+
+Page balances:
+  page=5 display=1 block=0 h1=215.375 h2=215.375 diff=0.000
+  page=6 display=2 block=0 h1=464.400 h2=464.400 diff=0.000
+  page=7 display=3 block=0 h1=472.550 h2=472.550 diff=0.000
+  page=8 display=4 block=0 h1=293.625 h2=293.625 diff=0.000
+  page=9 display=5 block=0 h1=384.750 h2=384.750 diff=0.000
+  page=10 display=6 block=0 h1=474.130 h2=474.130 diff=0.000 last_resort_sub_gap
+  page=11 display=7 block=0 h1=462.375 h2=462.375 diff=0.000
+  page=12 display=8 block=0 h1=475.250 h2=475.250 diff=0.000
+  page=13 display=9 block=0 h1=322.650 h2=293.119 diff=29.531 last_resort_sub_gap  ***
+  page=14 display=10 block=0 h1=320.625 h2=320.625 diff=0.000
+  page=15 display=11 block=0 h1=384.125 h2=384.125 diff=0.000
+  page=16 display=12 block=0 h1=448.250 h2=448.250 diff=0.000
+  page=17 display=13 block=0 h1=446.900 h2=446.900 diff=0.000
+  page=18 display=14 block=0 h1=456.300 h2=456.300 diff=0.000
+  page=19 display=15 block=0 h1=216.000 h2=216.000 diff=0.000
+  page=20 display=16 block=0 h1=381.375 h2=381.375 diff=0.000
+  page=21 display=17 block=0 h1=471.925 h2=471.925 diff=0.000
+  page=22 display=18 block=0 h1=33.750 h2=33.750 diff=0.000
+  page=23 display=19 block=0 h1=359.775 h2=359.775 diff=0.000
+  page=24 display=20 block=0 h1=258.525 h2=258.525 diff=0.000
+
+Coverage issues:
+  [page_imbalance] page 13 diff=29.531pt

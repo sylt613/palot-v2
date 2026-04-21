@@ -1,0 +1,19 @@
+[
+  {
+    "name": "title_rule_right",
+    "file": "/data/v2-import/palot/version2/ornaments/title_rule_right.png",
+    "width": 1320,
+    "height": 200,
+    "physical": "4.31in wide x 0.33in tall at 300 dpi",
+    "seed": 55566,
+    "prompt": "Use the supplied reference image only as style inspiration. Keep the same approved modern engraved sefer ornament family: monochrome black and gray only, pure white background, clean contemporary sefer dignity, crisp print-ready contours, restrained relief, no muddy shading, no text, no letters, no labels. All ornaments in this project must look like they belong to one single coordinated suite made by the same designer at the same time. Match stroke logic, darkness, engraving density, corner behavior, and silhouette discipline across the full set. These ornaments will print very small on a 5.5 by 8.5 inch sefer page, so avoid micro-detail. Use fewer, larger forms with open breathing space and visibly legible structure at small print size. If a detail would disappear when printed small, omit it. Output exactly one isolated ornament, centered, with no extra decorations outside the requested shape. Respect the requested image dimensions and the requested blank whitespace exactly. Do not place a small ornament loosely inside a large blank image. Make the ornament intentionally sized for the requested canvas. Use every supplied reference image as part of the same approved style family. Keep this new ornament visibly consistent with those references, while still respecting the exact requested geometry and size. Create one full-width title rule ornament for a Hebrew sefer. Final canvas size exactly 1320 by 200 pixels. STYLE: Look at the anaf flanker reference — same family. Clean black linework on white. DESIGN: 2 or 3 thin parallel horizontal lines run straight across the full canvas width. At the RIGHT end only, the lines gracefully sweep together and curl into a terminal. As the lines begin to curve and coil, they get slightly thicker — like a calligraphy pen stroke that swells naturally at the turn. The lines are thin and consistent when straight, then swell to slightly bolder as they complete the curl. ONE curl terminal only — one or two loops going the SAME direction, not an S-shape. CRITICAL SYMMETRY: the ornament must be perfectly top-to-bottom symmetric around the horizontal centerline. The upper half of the curl is the exact mirror of the lower half. Equal white space above and below. No gray fills, no shading, no gray wash — pure black lines on white only. The thickening happens naturally from the calligraphic pen weight change, not from filled shapes. LEFT end: lines terminate cleanly straight, no ornament, no tapering. At least 20px white margin on top and bottom edges. Canvas exactly 1320x200px. Pure white background.",
+    "result": {
+      "url": "https://v3b.fal.media/files/b/0a964bc3/aCRNK1tTgnSrWwraxGvaE_mQ9Mir11.png",
+      "content_type": "image/png",
+      "file_name": "aCRNK1tTgnSrWwraxGvaE_mQ9Mir11.png",
+      "file_size": null,
+      "width": null,
+      "height": null
+    }
+  }
+]

@@ -1,0 +1,25 @@
+Total issues: 1
+
+Page balances:
+  page=5 display=1 block=0 h1=257.934 h2=257.934 diff=0.000
+  page=6 display=2 block=0 h1=455.170 h2=455.170 diff=0.000
+  page=7 display=3 block=0 h1=475.724 h2=475.724 diff=0.000
+  page=8 display=4 block=0 h1=153.090 h2=153.090 diff=0.000
+  page=9 display=5 block=0 h1=394.014 h2=394.014 diff=0.000
+  page=10 display=6 block=0 h1=372.842 h2=372.842 diff=0.000
+  page=11 display=7 block=0 h1=468.098 h2=468.098 diff=0.000
+  page=12 display=8 block=0 h1=469.601 h2=469.601 diff=0.000
+  page=13 display=9 block=0 h1=296.856 h2=244.434 diff=52.422 last_resort_sub_gap  ***
+  page=14 display=10 block=0 h1=255.150 h2=255.150 diff=0.000
+  page=15 display=11 block=0 h1=377.004 h2=377.004 diff=0.000
+  page=16 display=12 block=0 h1=472.878 h2=472.878 diff=0.000
+  page=17 display=13 block=0 h1=428.714 h2=428.714 diff=0.000
+  page=18 display=14 block=0 h1=445.724 h2=445.724 diff=0.000
+  page=19 display=15 block=0 h1=121.854 h2=121.854 diff=0.000
+  page=20 display=16 block=0 h1=390.612 h2=390.612 diff=0.000
+  page=21 display=17 block=0 h1=452.591 h2=452.591 diff=0.000
+  page=22 display=18 block=0 h1=320.361 h2=322.634 diff=2.274 last_resort_sub_gap
+  page=23 display=19 block=0 h1=343.664 h2=343.664 diff=0.000
+
+Coverage issues:
+  [page_imbalance] page 13 diff=52.422pt

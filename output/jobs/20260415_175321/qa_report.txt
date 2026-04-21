@@ -1,0 +1,23 @@
+Total issues: 0
+
+Page balances:
+  page=5 display=1 block=0 h1=250.988 h2=250.988 diff=0.000
+  page=6 display=2 block=0 h1=450.345 h2=450.345 diff=0.000
+  page=7 display=3 block=0 h1=463.953 h2=463.953 diff=0.000
+  page=8 display=4 block=0 h1=17.010 h2=17.010 diff=0.000
+  page=9 display=5 block=0 h1=395.913 h2=395.913 diff=0.000
+  page=10 display=6 block=0 h1=450.345 h2=450.345 diff=0.000
+  page=11 display=7 block=0 h1=461.912 h2=461.912 diff=0.000
+  page=12 display=8 block=0 h1=425.170 h2=425.170 diff=0.000
+  page=13 display=9 block=0 h1=272.160 h2=272.160 diff=0.000
+  page=14 display=10 block=0 h1=387.828 h2=387.828 diff=0.000
+  page=15 display=11 block=0 h1=455.868 h2=455.868 diff=0.000
+  page=16 display=12 block=0 h1=456.548 h2=456.548 diff=0.000 last_resort_sub_gap
+  page=17 display=13 block=0 h1=332.035 h2=332.035 diff=0.000
+  page=18 display=14 block=0 h1=367.416 h2=367.416 diff=0.000
+  page=19 display=15 block=0 h1=348.285 h2=348.285 diff=0.000
+  page=20 display=16 block=0 h1=381.704 h2=381.704 diff=0.000
+  page=21 display=17 block=0 h1=161.935 h2=161.935 diff=0.000
+
+Coverage issues:
+  none

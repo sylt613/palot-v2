@@ -1,0 +1,52 @@
+Total trace events: 1476
+
+Events by phase:
+  col_layout.d1: 748
+  col_layout.d2: 62
+  init: 1
+  paginate: 2
+  render_page: 397
+  render_page.balance_trim: 34
+  render_page.bleed: 8
+  render_page.final_flush: 21
+  render_page.lookahead: 36
+  render_page.page_stretch: 63
+  render_page.split_loop: 104
+
+Events by type (top 50):
+  col_layout_entry: 405
+  col_layout_return: 405
+  element_visit: 120
+  para_trial: 107
+  para_whole_fit: 93
+  split_try: 92
+  balance_trim_try: 22
+  page_start: 21
+  render_page_entry: 21
+  final_flush: 21
+  page_stretch_check: 21
+  page_end: 21
+  split_start: 14
+  split_found: 12
+  balance_trim_start: 12
+  balance_trim_base: 12
+  lookahead_preview: 12
+  split_commit: 12
+  lookahead_score: 11
+  anaf_placed: 6
+  anaf_break: 6
+  bleed_check: 6
+  lookahead_try: 6
+  lookahead_anaf_stop: 4
+  split_none_found: 2
+  page_full: 2
+  build_start: 1
+  paginate_start: 1
+  sefer_title_placed: 1
+  lookahead_accepted: 1
+  ornament_skip: 1
+  bleed_orphan_skip: 1
+  bleed_applied: 1
+  lookahead_no_improvement: 1
+  lookahead_single_para_reduce: 1
+  paginate_end: 1

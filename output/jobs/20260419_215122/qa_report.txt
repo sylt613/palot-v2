@@ -1,0 +1,25 @@
+Total issues: 0
+
+Page balances:
+  page=5 display=1 block=0 h1=182.948 h2=182.948 diff=0.000
+  page=6 display=2 block=0 h1=451.105 h2=451.105 diff=0.000
+  page=7 display=3 block=0 h1=459.950 h2=459.950 diff=0.000
+  page=8 display=4 block=0 h1=204.120 h2=204.120 diff=0.000
+  page=9 display=5 block=0 h1=353.808 h2=356.048 diff=2.240
+  page=10 display=6 block=0 h1=457.149 h2=457.149 diff=0.000
+  page=11 display=7 block=0 h1=446.943 h2=446.943 diff=0.000
+  page=12 display=8 block=0 h1=461.232 h2=461.232 diff=0.000
+  page=13 display=9 block=0 h1=204.120 h2=204.120 diff=0.000
+  page=14 display=10 block=0 h1=289.170 h2=289.170 diff=0.000
+  page=15 display=11 block=0 h1=370.818 h2=370.818 diff=0.000
+  page=16 display=12 block=0 h1=457.149 h2=457.149 diff=0.000
+  page=17 display=13 block=0 h1=459.610 h2=459.610 diff=0.000
+  page=18 display=14 block=0 h1=449.744 h2=449.744 diff=0.000
+  page=19 display=15 block=0 h1=34.020 h2=34.020 diff=0.000
+  page=20 display=16 block=0 h1=367.416 h2=367.416 diff=0.000
+  page=21 display=17 block=0 h1=440.139 h2=440.139 diff=0.000
+  page=22 display=18 block=0 h1=345.643 h2=345.643 diff=0.000
+  page=23 display=19 block=0 h1=257.872 h2=257.872 diff=0.000
+
+Coverage issues:
+  none

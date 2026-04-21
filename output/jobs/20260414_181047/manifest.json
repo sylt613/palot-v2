@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260414_181047",
+  "source": "/data/v2-import/palot/version2/doc_parts.json",
+  "output": "/data/v2-import/palot/version2/output/palaot.pdf",
+  "shaar_blatt": "/root/covers/v10/shar_blatt_v36_printready.pdf",
+  "settings": "/data/v2-import/palot/version2/settings.py",
+  "script": "/data/v2-import/palot/version2/build_v2.py",
+  "n_pages": 20,
+  "n_log_entries": 116
+}

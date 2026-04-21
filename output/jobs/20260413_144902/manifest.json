@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260413_144902",
+  "source": "/root/Desktop/palot/version2/doc_parts.json",
+  "output": "/root/Desktop/palot/version2/output/palaot.pdf",
+  "shaar_blatt": "/root/covers/v10/shar_blatt_v36_printready.pdf",
+  "settings": "/root/Desktop/palot/version2/settings.py",
+  "script": "/root/Desktop/palot/version2/build_v2.py",
+  "n_pages": 21,
+  "n_log_entries": 112
+}

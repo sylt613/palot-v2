@@ -1170,7 +1170,7 @@ def _apply_white_gray_rings(canvas, near_dil=7, far_blur=12,
 
 
 _GRAY_66 = 85  # 66% gray (coverage) ≈ RGB 85
-_GRAY_LEADER = 140  # light gray for post-anaf ornament & header leader (55%)
+_GRAY_LEADER = 153  # light gray for post-anaf ornament & header leader (60%)
 _GRAY_DARK = 85    # dark gray for mamar box & anaf flanker (33%)
 
 def draw_post_anaf_divider_band(c, x_center, y_top, width):
@@ -2296,6 +2296,9 @@ def _get_nano_crop_reader(kind):
             # curls across the full header width.
             crop = img.crop((360, 146, 980, 220))
             crop = _light_to_alpha(crop, cutoff=245)
+            alpha = crop.getchannel('A')
+            crop = Image.new('RGBA', crop.size, (_GRAY_LEADER, _GRAY_LEADER, _GRAY_LEADER, 0))
+            crop.putalpha(alpha)
         elif kind == 'header_terminal':
             # Take the actual end flourish from the top horizontal ornament band.
             # The previous crop accidentally clipped into the wrong region and only
@@ -3176,8 +3179,9 @@ def _draw_header_leader(c, y, x_left, x_right, fade_side='right', fade_zone=38):
     if x_right <= x_left:
         return
     total = x_right - x_left
+    g_fixed = _GRAY_LEADER / 255.0
 
-    def _segmented_line(y0, lw, g0, g1, y_off=0.0):
+    def _segmented_line(y0, lw, y_off=0.0):
         n = 72
         dx = total / n
         for i in range(n):
@@ -3191,14 +3195,13 @@ def _draw_header_leader(c, y, x_left, x_right, fade_side='right', fade_zone=38):
             # tt=1 full strength, tt=0 fully faded
             tt = min(dist / fade_zone, 1.0)
             tt = tt * tt * (3.0 - 2.0 * tt)   # smoothstep fade
-            g = g1 + (g0 - g1) * tt
-            c.setStrokeColorRGB(g, g, g)
+            c.setStrokeColorRGB(g_fixed, g_fixed, g_fixed)
             c.setLineWidth(lw)
             c.line(xa, y0 + y_off, xb, y0 + y_off)
 
-    _segmented_line(y, 1.0,  0.64, 0.93,  y_off=0.0)
-    _segmented_line(y, 0.38, 0.79, 0.97,  y_off=-0.5)
-    _segmented_line(y, 0.20, 0.71, 0.95,  y_off=-0.9)
+    _segmented_line(y, 1.0, y_off=0.0)
+    _segmented_line(y, 0.38, y_off=-0.5)
+    _segmented_line(y, 0.20, y_off=-0.9)
 
 def _draw_header_leader_curl(c, y, x_left, x_right):
     """Odd-page leader: long continuous rule with a single curl at the far right end."""

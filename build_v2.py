@@ -1170,7 +1170,8 @@ def _apply_white_gray_rings(canvas, near_dil=7, far_blur=12,
 
 
 _GRAY_66 = 85  # 66% gray (coverage) ≈ RGB 85
-_GRAY_LEADER = 140  # light gray for post-anaf, anaf flanker, header leader (55%)
+_GRAY_LEADER = 140  # light gray for post-anaf ornament & header leader (55%)
+_GRAY_DARK = 85    # dark gray for mamar box & anaf flanker (33%)
 
 def draw_post_anaf_divider_band(c, x_center, y_top, width):
     """Draw the post-anaf section divider: same ornament shape, dilated and filled 66% gray."""
@@ -1945,10 +1946,10 @@ def _apply_mamar_box_halo(box_rgb):
     # Start with a fully white canvas (interior stays white).
     out = _np.full((H, W, 3), 255.0, dtype=_np.float32)
 
-    # Paint the dilated frame lines as light gray for mamar box.
+    # Paint the dilated frame lines as dark gray for mamar box.
     w_alpha = _np.array(white_mask, dtype=_np.float32) / 255.0
     w_alpha3 = w_alpha[..., None]
-    frame_rgb = _np.array([_GRAY_LEADER, _GRAY_LEADER, _GRAY_LEADER], dtype=_np.float32)
+    frame_rgb = _np.array([_GRAY_DARK, _GRAY_DARK, _GRAY_DARK], dtype=_np.float32)
     out = out * (1.0 - w_alpha3) + frame_rgb * w_alpha3
 
     return Image.fromarray(_np.clip(out, 0, 255).astype(_np.uint8), 'RGB')
@@ -2427,7 +2428,7 @@ def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
                 tail_w = max(8, curl_x)
                 canvas = _fade_rgba_alpha(canvas, fade_side='left', fade_zone_px=tail_w)
 
-            # Apply unified light gray color (_GRAY_LEADER) with 80% alpha
+            # Apply dark gray color (_GRAY_DARK) with 80% alpha
             r, g, b, a = canvas.split()
             a = a.point(lambda v: int(v * 0.80))
             canvas = Image.merge('RGBA', (r, g, b, a))
@@ -2435,13 +2436,13 @@ def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
             flat = Image.new('RGB', canvas.size, (255, 255, 255))
             flat.paste(canvas, mask=canvas.split()[3])
             
-            # Color shift to _GRAY_LEADER (140)
+            # Color shift to _GRAY_DARK (85)
             pixels = flat.load()
             for y in range(flat.height):
                 for x in range(flat.width):
                     r, g, b = pixels[x, y]
                     if (r, g, b) != (255, 255, 255):  # Not white background
-                        pixels[x, y] = (_GRAY_LEADER, _GRAY_LEADER, _GRAY_LEADER)
+                        pixels[x, y] = (_GRAY_DARK, _GRAY_DARK, _GRAY_DARK)
             reader = ImageReader(flat)
             _ANAF_FLANKER_CACHE[cache_key] = reader
         except Exception:

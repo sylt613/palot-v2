@@ -1170,6 +1170,8 @@ def _apply_white_gray_rings(canvas, near_dil=7, far_blur=12,
 
 
 _GRAY_66 = 85  # 66% gray (coverage) ≈ RGB 85
+_GRAY_LEADER = 140  # lighter gray for post-anaf & header leader (55%)
+_GRAY_MAMAR = 110   # darker gray for mamar box & anaf flanker (43%)
 
 def draw_post_anaf_divider_band(c, x_center, y_top, width):
     """Draw the post-anaf section divider: same ornament shape, dilated and filled 66% gray."""
@@ -1201,7 +1203,7 @@ def draw_post_anaf_divider_band(c, x_center, y_top, width):
             core_x = max(0, (canvas_w - new_w) // 2)
             mask.paste(alpha_dilated, (core_x, pad_v_px))
             rgba = Image.new('RGBA', (canvas_w, canvas_h_px), (0, 0, 0, 0))
-            gray_fill = Image.new('RGBA', (canvas_w, canvas_h_px), (_GRAY_66, _GRAY_66, _GRAY_66, 255))
+            gray_fill = Image.new('RGBA', (canvas_w, canvas_h_px), (_GRAY_LEADER, _GRAY_LEADER, _GRAY_LEADER, 255))
             rgba.paste(gray_fill, (0, 0), mask)
             flat = Image.new('RGB', (canvas_w, canvas_h_px), (255, 255, 255))
             flat.paste(rgba, (0, 0), rgba)
@@ -1944,10 +1946,10 @@ def _apply_mamar_box_halo(box_rgb):
     # Start with a fully white canvas (interior stays white).
     out = _np.full((H, W, 3), 255.0, dtype=_np.float32)
 
-    # Paint the dilated frame lines as 66% gray (no outer halo ring).
+    # Paint the dilated frame lines as darker gray for mamar box.
     w_alpha = _np.array(white_mask, dtype=_np.float32) / 255.0
     w_alpha3 = w_alpha[..., None]
-    frame_rgb = _np.array([_GRAY_66, _GRAY_66, _GRAY_66], dtype=_np.float32)
+    frame_rgb = _np.array([_GRAY_MAMAR, _GRAY_MAMAR, _GRAY_MAMAR], dtype=_np.float32)
     out = out * (1.0 - w_alpha3) + frame_rgb * w_alpha3
 
     return Image.fromarray(_np.clip(out, 0, 255).astype(_np.uint8), 'RGB')
@@ -2426,13 +2428,21 @@ def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
                 tail_w = max(8, curl_x)
                 canvas = _fade_rgba_alpha(canvas, fade_side='left', fade_zone_px=tail_w)
 
-            # Gray: 80% alpha
+            # Apply unified gray color (_GRAY_MAMAR) with 80% alpha
             r, g, b, a = canvas.split()
             a = a.point(lambda v: int(v * 0.80))
             canvas = Image.merge('RGBA', (r, g, b, a))
 
             flat = Image.new('RGB', canvas.size, (255, 255, 255))
             flat.paste(canvas, mask=canvas.split()[3])
+            
+            # Color shift to _GRAY_MAMAR (110)
+            pixels = flat.load()
+            for y in range(flat.height):
+                for x in range(flat.width):
+                    r, g, b = pixels[x, y]
+                    if (r, g, b) != (255, 255, 255):  # Not white background
+                        pixels[x, y] = (_GRAY_MAMAR, _GRAY_MAMAR, _GRAY_MAMAR)
             reader = ImageReader(flat)
             _ANAF_FLANKER_CACHE[cache_key] = reader
         except Exception:

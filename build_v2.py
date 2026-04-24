@@ -504,6 +504,35 @@ def _fix_otto_header(font_path):
     return font_path
 
 def load_font(rl_name, font_path):
+    if not os.path.exists(font_path):
+        # Be tolerant of local font filename variants (underscores, casing, suffixes).
+        fdir = os.path.dirname(font_path)
+        base = os.path.basename(font_path)
+        stem, ext = os.path.splitext(base)
+        def _norm(s):
+            return re.sub(r'[^a-z0-9]+', '', s.lower())
+        target = _norm(stem)
+        if os.path.isdir(fdir):
+            exact_match = None
+            fuzzy_candidates = []
+            for fn in os.listdir(fdir):
+                p = os.path.join(fdir, fn)
+                if not os.path.isfile(p):
+                    continue
+                fn_stem, fn_ext = os.path.splitext(fn)
+                if ext and fn_ext.lower() != ext.lower():
+                    continue
+                n = _norm(fn_stem)
+                if n == target:
+                    exact_match = p
+                    break  # exact match found; stop scanning
+                elif target and (target in n or n in target):
+                    fuzzy_candidates.append(p)
+            if exact_match:
+                font_path = exact_match
+            elif fuzzy_candidates:
+                font_path = fuzzy_candidates[0]
+
     ext = os.path.splitext(font_path)[1].lower()
     needs_convert = (ext == '.otf')
     if not needs_convert:
@@ -542,6 +571,11 @@ else:
     print(f"Skipping missing ornament font: {S.ORNAMENT_FONT_PATH}")
 load_font(S.BOLD_BODY_FONT_NAME,   S.BOLD_BODY_FONT_PATH)
 load_font(S.EFT_TALPIYOT_FONT_NAME, S.EFT_TALPIYOT_FONT_PATH)
+_GARAMOND_REG  = 'GaramondNo8-Reg'
+_GARAMOND_MED  = 'GaramondNo8-Med'
+_FONT_DIR = "/data/fonts/Fonts (2) (5)/Fonts (2)"
+load_font(_GARAMOND_REG, os.path.join(_FONT_DIR, 'GaramondNo8-Reg.ttf'))
+load_font(_GARAMOND_MED, os.path.join(_FONT_DIR, 'GaramondNo8-Med.ttf'))
 UI_SYMBOL_FONT = S.BODY_FONT_NAME
 for _symbol_font_path in (
         '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
@@ -872,11 +906,19 @@ def draw_frame_box(c, x_left, y_bot, width_pt, height_pt, intensity=1.0, png_pat
     reader = _ASSEMBLED_FRAME_CACHE.get(cache_key)
     if reader is None:
         try:
+            import numpy as _np
+            from PIL import ImageFilter as _IF
             from frame_assembler import assemble_frame as _assemble_frame
             frame_img = _assemble_frame(px_w, px_h)
-            # Apply gray halo outline (soft gray glow around dark lines)
             frame_img = _apply_gray_halo(frame_img)
-            # Apply intensity (lighten toward white) if < 1
+            # Recolor frame lines to 66% gray: detect dark pixels (frame ink),
+            # dilate slightly for thickness, paint gray; interior white untouched.
+            arr = _np.array(frame_img.convert('RGB'), dtype=_np.uint8)
+            lum = arr.mean(axis=2)
+            ink_mask = Image.fromarray((lum < 200).astype(_np.uint8) * 255, 'L')
+            ink_dilated = _np.array(ink_mask.filter(_IF.MaxFilter(3))) > 128
+            arr[ink_dilated] = _GRAY_66
+            frame_img = Image.fromarray(arr, 'RGB')
             if intensity < 1.0:
                 lut = [int(v * intensity + 255 * (1 - intensity)) for v in range(256)]
                 r, g, b = frame_img.split()
@@ -1013,9 +1055,10 @@ def _build_plain_tiled_rule(needed_w_px, canvas_h_px, fade_zone_frac=0.18):
         if tile is None:
             return None
         tiled = _build_tiled_leader(tile, None, needed_w_px, canvas_h_px)
-        fade_zone_px = min(max(16, int(needed_w_px * fade_zone_frac)), needed_w_px // 3)
-        tiled = _fade_rgba_alpha(tiled, fade_side='left',  fade_zone_px=fade_zone_px)
-        tiled = _fade_rgba_alpha(tiled, fade_side='right', fade_zone_px=fade_zone_px)
+        if fade_zone_frac > 0:
+            fade_zone_px = min(max(16, int(needed_w_px * fade_zone_frac)), needed_w_px // 3)
+            tiled = _fade_rgba_alpha(tiled, fade_side='left',  fade_zone_px=fade_zone_px)
+            tiled = _fade_rgba_alpha(tiled, fade_side='right', fade_zone_px=fade_zone_px)
         return tiled
     except Exception:
         return None
@@ -1126,28 +1169,18 @@ def _apply_white_gray_rings(canvas, near_dil=7, far_blur=12,
                            white_val=white_val, gray_val=gray_val)
 
 
+_GRAY_66 = 85  # 66% gray (coverage) ≈ RGB 85
+
 def draw_post_anaf_divider_band(c, x_center, y_top, width):
-    """Draw the post-anaf section divider as white ornament with soft gray outer glow.
-
-    Pipeline:
-      1. render ornament core
-      2. dilate slightly and fill white
-      3. dilate further and fill gray
-      4. blur only the gray outer band so the outside fades away
-
-    y_top is the top edge of the visible ornament band.
-    """
-    render_h    = 22.0          # visible rendered height in points
+    """Draw the post-anaf section divider: same ornament shape, dilated and filled 66% gray."""
+    render_h    = 22.0
     ppi         = 300
     _PNG_ANAF_END = os.path.join(_ORNAMENT_DIR, 'anaf_end_orn_raw.png')
-    # Pad horizontally too so the faded gray ring never gets clipped at the
-    # left/right image edges.
     pad_h_px    = 72
-    visible_w_px = max(1, round(width   * ppi / 72))
+    visible_w_px = max(1, round(width * ppi / 72))
     needed_w_px = visible_w_px + 2 * pad_h_px
     band_h_px   = max(4, round(render_h * ppi / 72))
-    # Generous vertical padding — gray halo extends well beyond ink
-    pad_v_px    = 92
+    pad_v_px    = 30
     canvas_h_px = band_h_px + 2 * pad_v_px
     cache_key   = (visible_w_px, band_h_px)
     cached = _POST_ANAF_DIV_CACHE.get(cache_key)
@@ -1155,49 +1188,22 @@ def draw_post_anaf_divider_band(c, x_center, y_top, width):
         if not os.path.exists(_PNG_ANAF_END):
             return False
         try:
-            import math
-            import numpy as np
             from PIL import ImageFilter
             src = Image.open(_PNG_ANAF_END).convert('RGBA')
-            # Scale to render height, preserve aspect
             scale  = band_h_px / src.height
             new_w  = max(1, round(src.width * scale))
             src    = src.resize((new_w, band_h_px), Image.LANCZOS)
-
-            # Build masks from ornament alpha. Pad the source alpha *before*
-            # dilation/blur so the white/gray expansion cannot clip against the
-            # tight source image bounds.
             alpha_core = src.getchannel('A')
-            white_dil_size = 3
-            gray_dil_size = 7
-            gray_blur_px = 2.2
-            effect_pad_px = int(math.ceil(((gray_dil_size - 1) / 2.0) + gray_blur_px * 3.0 + 2.0))
-            alpha_mask = Image.new('L', (new_w + 2 * effect_pad_px, band_h_px + 2 * effect_pad_px), 0)
-            alpha_mask.paste(alpha_core, (effect_pad_px, effect_pad_px))
-            # Small white dilation: slightly thickens the ornament body.
-            white_mask = alpha_mask.filter(ImageFilter.MaxFilter(white_dil_size))
-            # Larger gray dilation: forms the outer glow field.
-            gray_mask  = alpha_mask.filter(ImageFilter.MaxFilter(gray_dil_size))
-            # Ring-only gray so gray doesn't muddy the white/core interior.
-            gray_ring_arr = np.array(gray_mask, dtype=np.int16) - np.array(white_mask, dtype=np.int16)
-            gray_ring = Image.fromarray(np.clip(gray_ring_arr, 0, 255).astype(np.uint8), 'L')
-            # Fade only the outside of the gray band.
-            gray_ring = gray_ring.filter(ImageFilter.GaussianBlur(gray_blur_px))
-            gray_ring = gray_ring.point(lambda p: int(p * 0.85))
-
-            rgba = Image.new('RGBA', (needed_w_px, canvas_h_px), (0, 0, 0, 0))
-            core_x = max(0, (needed_w_px - new_w) // 2)
-            paste_x = max(0, core_x - effect_pad_px)
-            paste_y = max(0, pad_v_px - effect_pad_px)
-
-            # Outer faded gray outline.
-            gray_fill = Image.new('RGBA', gray_ring.size, (50, 50, 50, 255))
-            rgba.paste(gray_fill, (paste_x, paste_y), gray_ring)
-            # Thick white ornament body.
-            white_fill = Image.new('RGBA', white_mask.size, (252, 252, 252, 255))
-            rgba.paste(white_fill, (paste_x, paste_y), white_mask)
-
-            flat = Image.new('RGB', (needed_w_px, canvas_h_px), (255, 255, 255))
+            # Dilate slightly to thicken the ornament
+            alpha_dilated = alpha_core.filter(ImageFilter.MaxFilter(5))
+            canvas_w = needed_w_px
+            mask = Image.new('L', (canvas_w, canvas_h_px), 0)
+            core_x = max(0, (canvas_w - new_w) // 2)
+            mask.paste(alpha_dilated, (core_x, pad_v_px))
+            rgba = Image.new('RGBA', (canvas_w, canvas_h_px), (0, 0, 0, 0))
+            gray_fill = Image.new('RGBA', (canvas_w, canvas_h_px), (_GRAY_66, _GRAY_66, _GRAY_66, 255))
+            rgba.paste(gray_fill, (0, 0), mask)
+            flat = Image.new('RGB', (canvas_w, canvas_h_px), (255, 255, 255))
             flat.paste(rgba, (0, 0), rgba)
             cached = ImageReader(flat)
             _POST_ANAF_DIV_CACHE[cache_key] = cached
@@ -1216,7 +1222,35 @@ def draw_post_anaf_divider_band(c, x_center, y_top, width):
     return render_h
 
 def draw_generated_footnote_separator(c, x_center, y_center, width):
-    return draw_png_ornament(c, _PNG_FOOTNOTE_SEPARATOR, x_center, y_center, width=width, preserve_aspect=True)
+    """Same footnote separator ornament, dilated and filled 66% gray."""
+    png_path = _PNG_FOOTNOTE_SEPARATOR
+    if not os.path.exists(png_path):
+        return False
+    try:
+        from PIL import ImageFilter
+        ppi = 300
+        render_h = 14.0
+        band_h_px = max(4, round(render_h * ppi / 72))
+        vis_w_px  = max(1, round(width * ppi / 72))
+        src = Image.open(png_path).convert('RGBA')
+        scale = band_h_px / src.height
+        new_w = max(1, round(src.width * scale))
+        src = src.resize((new_w, band_h_px), Image.LANCZOS)
+        alpha_dilated = src.getchannel('A').filter(ImageFilter.MaxFilter(5))
+        canvas_w = vis_w_px
+        mask = Image.new('L', (canvas_w, band_h_px), 0)
+        mask.paste(alpha_dilated, (max(0, (canvas_w - new_w) // 2), 0))
+        rgba = Image.new('RGBA', (canvas_w, band_h_px), (0, 0, 0, 0))
+        rgba.paste(Image.new('RGBA', (canvas_w, band_h_px), (_GRAY_66, _GRAY_66, _GRAY_66, 255)), (0, 0), mask)
+        flat = Image.new('RGB', (canvas_w, band_h_px), (255, 255, 255))
+        flat.paste(rgba, (0, 0), rgba)
+        c.saveState()
+        c.drawImage(ImageReader(flat), x_center - width / 2, y_center - render_h / 2,
+                    width=width, height=render_h, mask=[254, 255, 254, 255, 254, 255])
+        c.restoreState()
+        return True
+    except Exception:
+        return False
 
 def draw_generated_mamar_frame(c, x_center, y_center, width, height, intensity=1.0):
     """Draw the baroque scroll frame centred at (x_center, y_center)."""
@@ -1907,23 +1941,14 @@ def _apply_mamar_box_halo(box_rgb):
         gray_ring = gray_ring.point(lambda p: int(p * fade_strength))
 
     H, W = arr.shape[:2]
-    out = _np.full((H, W, 3), white_val, dtype=_np.float32)
+    # Start with a fully white canvas (interior stays white).
+    out = _np.full((H, W, 3), 255.0, dtype=_np.float32)
 
-    # 1. Gray ring outside the white frame only.
-    g_alpha = _np.array(gray_ring, dtype=_np.float32) / 255.0
-    g_alpha3 = g_alpha[..., None]
-    gray_rgb = _np.array([gray_val, gray_val, gray_val], dtype=_np.float32)
-    out = out * (1.0 - g_alpha3) + gray_rgb * g_alpha3
-
-    # 2. Thick pure-white band — this is the visible frame line.
+    # Paint the dilated frame lines as 66% gray (no outer halo ring).
     w_alpha = _np.array(white_mask, dtype=_np.float32) / 255.0
     w_alpha3 = w_alpha[..., None]
-    white_rgb = _np.array([white_val, white_val, white_val], dtype=_np.float32)
-    out = out * (1.0 - w_alpha3) + white_rgb * w_alpha3
-
-    # 3. OPTIONAL ink restoration (default OFF — user wants no dark ink).
-    if preserve_ink:
-        out[ink_bool] = arr[ink_bool]
+    frame_rgb = _np.array([_GRAY_66, _GRAY_66, _GRAY_66], dtype=_np.float32)
+    out = out * (1.0 - w_alpha3) + frame_rgb * w_alpha3
 
     return Image.fromarray(_np.clip(out, 0, 255).astype(_np.uint8), 'RGB')
 _CURL_LINE_BANDS = {
@@ -2577,10 +2602,17 @@ ALLOW_SUB_AFTER_STRETCH = False
 _force_sub_after_stretchable = False
 
 MIN_PART_LINES = S.MIN_PART_LINES
+MIN_HEAD_LINES = S.MIN_HEAD_LINES
+MIN_TAIL_LINES = S.MIN_TAIL_LINES
 
 # Maximum top-padding that can be applied to the shorter column to absorb
 # small residual imbalance without visibly changing paragraph spacing.
 MAX_TOP_PAD = LH * 0.37
+
+# Strict balance policy: column bottoms must match exactly (within tiny float noise).
+ZERO_DIFF_TOL = 0.05
+# Minimum residual improvement required to accept a bleed candidate (accept any help).
+BLEED_MIN_IMPROVEMENT = 0.01
 
 # Footnotes
 FN_FS = S.FN_FONT_SIZE
@@ -2665,7 +2697,7 @@ _trace = TraceLog()
 # Header
 HEADER_FS = S.PGNUM_FONT_SIZE
 PGNUM_FS = S.PGNUM_FONT_SIZE
-HEADER_TITLE_FS = S.EVEN_HEADER_SIZE + 7.5
+HEADER_TITLE_FS = S.EVEN_HEADER_SIZE + 2.5
 HEADER_ANAF_FS = max(11.8, S.ODD_HEADER_SIZE - 0.8)
 HEADER_MAMAR_FS = max(13.2, S.ODD_HEADER_MAAR_SIZE - 1.0)
 HEADER_ORN_FS = S.PGNUM_ORN_SIZE
@@ -3079,7 +3111,7 @@ def draw_ornamental_rule(c, x_center, y, width, style='header'):
         c.drawPath(p, fill=1, stroke=0)
 
 def draw_page_number_ornament(c, x_center, y, page_num):
-    """Draw page number with ornamental frame."""
+    """Draw page number with bracket ornament in 66% gray."""
     num_str = heb_page(page_num)
     num_vis = vis(num_str)
     nw = Wid(num_vis, REG_FONT, PGNUM_FS)
@@ -3088,18 +3120,19 @@ def draw_page_number_ornament(c, x_center, y, page_num):
     c.drawString(x_center - nw/2, y, num_vis)
     bw, bh = nw + 16, 10
     bx, by = x_center - bw/2, y - 3
-    c.setStrokeColorRGB(0.35, 0.35, 0.35)
-    c.setLineWidth(0.4)
+    g = _GRAY_66 / 255.0
+    c.setStrokeColorRGB(g, g, g)
+    c.setLineWidth(1.2)
     c.line(bx, by, bx, by + bh)
-    c.line(bx, by + bh, bx + 4, by + bh)
-    c.line(bx, by, bx + 4, by)
+    c.line(bx, by + bh, bx + 5, by + bh)
+    c.line(bx, by, bx + 5, by)
     rx = bx + bw
     c.line(rx, by, rx, by + bh)
-    c.line(rx, by + bh, rx - 4, by + bh)
-    c.line(rx, by, rx - 4, by)
-    c.setFillColorRGB(0.35, 0.35, 0.35)
+    c.line(rx, by + bh, rx - 5, by + bh)
+    c.line(rx, by, rx - 5, by)
+    c.setFillColorRGB(g, g, g)
     for px, py in [(bx - 3, by + bh/2), (rx + 3, by + bh/2)]:
-        c.circle(px, py, 0.8, fill=1, stroke=0)
+        c.circle(px, py, 1.0, fill=1, stroke=0)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # HEADER / FOOTER RENDERING
@@ -3704,9 +3737,9 @@ def draw_divider_line(c, y_top, y_bot):
 # TABLE OF CONTENTS PAGE
 # ═══════════════════════════════════════════════════════════════════════════
 
-TOC_TITLE_FS   = 22.0   # "תוכן הענינים" big title
-TOC_MAMAR_FS   = 17.0   # "מאמר" label + mamar name — boxed, centered
-TOC_ENTRY_FS   = 13.0   # each anaf entry line
+TOC_TITLE_FS   = getattr(S, 'TOC_TITLE_FS', 22.0)   # "תוכן הענינים" big title
+TOC_MAMAR_FS   = 17.0                                # "מאמר" label + mamar name — boxed, centered
+TOC_ENTRY_FS   = getattr(S, 'TOC_ENTRY_FS', 13.0)   # each anaf entry line
 TOC_ENTRY_LH   = TOC_ENTRY_FS * 1.6
 TOC_DOT_CHAR   = "."
 
@@ -3745,9 +3778,9 @@ def draw_contact_page(c):
     lines_author = [
         ("לכל עניני הספר:", HEADING_BOLD_FONT, 13.0, 0.15),
         ("יואל באלזאם",      HEADING_BOLD_FONT, 13.5, 0.10),
-        ("(908) 783-8307",  HEADING_FONT,      12.0, 0.15),
-        ("2151 58th St",    HEADING_FONT,      11.5, 0.18),
-        ("Brooklyn, NY 11204", HEADING_FONT,   11.5, 0.18),
+         ("(908) 783-8307",  HEADING_BOLD_FONT, 12.0, 0.15),
+         ("2151 58th St",    HEADING_BOLD_FONT, 11.5, 0.18),
+         ("Brooklyn, NY 11204", HEADING_BOLD_FONT, 11.5, 0.18),
     ]
     lines_imud = [
         ("עימוד ועיצוב:",    HEADING_BOLD_FONT, 12.0, 0.15),
@@ -3807,7 +3840,7 @@ def draw_contact_page(c):
         Returns an RGB PIL Image (white background), width≈(rule_w+gap+band_w+gap+rule_w),
         height=needed_h_px."""
         # Horizontal rule image (symmetric curl+line+curl)
-        rule_h = _build_plain_tiled_rule(needed_h_px, rule_w_px, fade_zone_frac=0.14)
+        rule_h = _build_plain_tiled_rule(needed_h_px, rule_w_px, fade_zone_frac=0.0)
         if rule_h is None:
             return None
         band_h = _build_mamar_inner_band(needed_h_px, band_w_px)
@@ -3863,13 +3896,13 @@ def draw_contact_page(c):
     lines_author = [
         ("לכל עניני הספר:", HEADING_BOLD_FONT, 16.0, 0.15),
         ("יואל באלזאם",      HEADING_BOLD_FONT, 16.5, 0.10),
-        ("(908) 783-8307",  HEADING_FONT,      14.5, 0.15),
-        ("2151 58th St",    HEADING_FONT,      13.5, 0.18),
-        ("Brooklyn, NY 11204", HEADING_FONT,   13.5, 0.18),
+         ("(908) 783-8307",  _GARAMOND_MED,     14.5, 0.15),
+         ("2151 58th St",    _GARAMOND_MED,     13.5, 0.18),
+         ("Brooklyn, NY 11204", _GARAMOND_MED,  13.5, 0.18),
     ]
     lines_imud = [
         ("עימוד ועיצוב:",    HEADING_BOLD_FONT, 14.5, 0.15),
-        ("(845) 826 - 1850", HEADING_FONT,      13.5, 0.18),
+        ("(845) 826 - 1850", _GARAMOND_MED,    13.5, 0.18),
     ]
 
     face = pdfmetrics.getFont(HEADING_BOLD_FONT).face
@@ -3888,8 +3921,8 @@ def draw_contact_page(c):
             y -= size * 1.45
         return y
 
-    # Author block: start ~28% down from C_TOP
-    author_start_y = C_TOP - strip_h_pt * 0.28
+    # Author block: start ~20% down from C_TOP (moved up from 28%)
+    author_start_y = C_TOP - strip_h_pt * 0.20
     _draw_line_group(lines_author, author_start_y)
 
     # Imud block: start ~65% down from C_TOP (toward bottom)
@@ -4099,6 +4132,171 @@ def draw_toc_page(c, anaf_entries, page_offset):
     # Post-ornament — TOC page has generous whitespace so use ~3× the regular gap
     post_orn_top_y = y + entry_lh - HSEP * 1.4 * 3
     draw_post_anaf_divider_band(c, C_LEFT + C_W / 2, post_orn_top_y, C_W * 0.72)
+
+
+def draw_stocheniyanim_mefurat_page(c, anaf_entries_with_subs, page_num):
+    """Draw a detailed table of contents (סטוכניינים מפורט) page.
+
+    anaf_entries_with_subs: list of dicts:
+        {
+          'label': 'ענף א׳',
+          'name': 'קליפת עמלק',
+          'page': 1,
+          'subheadings': [
+              {'text': 'עמלק גרם חטא הראשון', 'page': 1},
+              ...
+          ]
+        }
+    page_num: physical page number (for geometry).
+
+    Subheadings are rendered inline on wrapped lines, separated by a small
+    ornament (◆), with no per-subhead page numbers.
+    """
+    set_page_geometry(page_num)
+
+    # ── Title ────────────────────────────────────────────────────────────────
+    STOCH_TITLE_FS = TOC_TITLE_FS * 0.85
+    STOCH_ANAF_FS  = TOC_ENTRY_FS * 1.1
+    STOCH_SUB_FS   = TOC_ENTRY_FS * 0.88
+    STOCH_ANAF_LH  = STOCH_ANAF_FS * 1.7
+    STOCH_SUB_LH   = STOCH_SUB_FS  * 1.45   # line height for inline sub rows
+    STOCH_GAP_AFTER_ANAF = STOCH_ANAF_LH * 0.35
+
+    # Inline separator between subheadings — from settings, fallback to ◆ then |.
+    SUB_SEP = getattr(S, 'STOCH_SUB_SEPARATOR', ' ◆ ')
+    sep_w = Wid(vis(SUB_SEP), HEADING_FONT, STOCH_SUB_FS)
+    if sep_w < 1.0:
+        SUB_SEP = "  |  "
+        sep_w = Wid(vis(SUB_SEP), HEADING_FONT, STOCH_SUB_FS)
+
+    title_text = vis("סטוכניינים מפורט")
+    title_cx   = C_LEFT + C_W / 2
+    tw_title   = Wid(title_text, HEADING_BOLD_FONT, STOCH_TITLE_FS)
+    frame_pad_x = 18.0
+    orn_h_pt    = _mamar_orn_h_pt()
+    frame_pad_y = 3.0
+    title_frame_w = tw_title + frame_pad_x * 2
+    title_frame_h = 2 * orn_h_pt + STOCH_TITLE_FS + frame_pad_y * 2
+    title_frame_top = C_TOP - 6
+    title_frame_bot = title_frame_top - title_frame_h
+    title_frame_left = title_cx - title_frame_w / 2
+
+    draw_mamar_box(c, title_frame_left, title_frame_bot, title_frame_w, title_frame_h,
+                   orn_h_pt=orn_h_pt)
+
+    BODY_CENTRE_ABOVE_BL = 0.2475
+    box_rect_h  = STOCH_TITLE_FS + frame_pad_y * 2
+    box_rect_cy = title_frame_bot + orn_h_pt + box_rect_h / 2
+    title_y     = box_rect_cy - BODY_CENTRE_ABOVE_BL * STOCH_TITLE_FS
+    c.setFont(HEADING_BOLD_FONT, STOCH_TITLE_FS)
+    c.setFillColorRGB(0.3, 0.3, 0.3)
+    c.drawString(title_cx - tw_title / 2, title_y, title_text)
+
+    # ── Entry list ───────────────────────────────────────────────────────────
+    toc_inset    = C_W * 0.04
+    label_right  = C_RIGHT - toc_inset
+    pgnum_x      = C_LEFT + toc_inset
+    dot_char     = "."
+    dot_w        = Wid(dot_char, HEADING_FONT, STOCH_ANAF_FS)
+
+    y = title_frame_bot - STOCH_TITLE_FS * 1.6
+
+    for entry in anaf_entries_with_subs:
+        if y < C_BOT + STOCH_ANAF_LH:
+            break   # page full — caller should paginate
+
+        # ── Anaf heading row ─────────────────────────────────────────────
+        label_v = vis(livorna_fix_quotes(strip_nikud(entry['label'])))
+        name_v  = vis(livorna_fix_quotes(strip_nikud(entry['name'])))
+        pg_v    = heb_page(entry['page'])
+
+        lw = Wid(label_v, HEADING_BOLD_FONT, STOCH_ANAF_FS)
+        c.setFont(HEADING_BOLD_FONT, STOCH_ANAF_FS)
+        c.setFillColorRGB(0.1, 0.1, 0.1)
+        c.drawString(label_right - lw, y, label_v)
+
+        name_avail = label_right - lw - 6 - pgnum_x - dot_w * 4
+        nw = Wid(name_v, HEADING_BOLD_FONT, STOCH_ANAF_FS)
+        name_x = label_right - lw - 6 - min(nw, name_avail)
+        c.drawString(name_x, y, name_v if nw <= name_avail else name_v[:int(len(name_v)*name_avail/nw)])
+
+        pw = sum(Wid(ch, HEADING_FONT, STOCH_ANAF_FS) for ch in pg_v)
+        draw_rtl_token(c, pg_v, HEADING_FONT, STOCH_ANAF_FS, pgnum_x, y, color=(0.1, 0.1, 0.1))
+
+        # Dot leaders between page number and anaf name
+        dot_start = pgnum_x + pw + dot_w * 2
+        dot_end   = name_x - dot_w * 2
+        c.setFont(HEADING_FONT, STOCH_ANAF_FS)
+        c.setFillColorRGB(0.5, 0.5, 0.5)
+        dx = dot_start
+        while dx + dot_w <= dot_end:
+            c.drawString(dx, y, dot_char)
+            dx += dot_w * 2
+
+        y -= STOCH_ANAF_LH
+
+        # ── Subheadings — inline, wrapped, separated by ◆ ───────────────
+        subs = entry.get('subheadings', [])
+        if subs:
+            sub_right = label_right   # flush with anaf label column
+            sub_left  = pgnum_x       # same left margin
+
+            # Build list of display strings (no page numbers)
+            sub_texts = [vis(livorna_fix_quotes(strip_nikud(s['text']))) for s in subs]
+
+            # Word-wrap the inline list into lines that fit sub_right..sub_left
+            avail_w = sub_right - sub_left
+            lines   = []   # each element: list of (text, is_sep) tokens for one line
+            cur_line = []
+            cur_w    = 0.0
+
+            for i, st in enumerate(sub_texts):
+                tw_sub = Wid(st, HEADING_FONT, STOCH_SUB_FS)
+                # separator before this item (except the first)
+                sep_token_w = sep_w if i > 0 else 0.0
+
+                needed = sep_token_w + tw_sub
+                if cur_line and cur_w + needed > avail_w:
+                    # flush current line, start new
+                    lines.append(cur_line)
+                    cur_line = []
+                    cur_w    = 0.0
+                    sep_token_w = 0.0   # no leading sep on new line
+
+                if i > 0 and sep_token_w > 0:
+                    cur_line.append((vis(SUB_SEP), True))
+                    cur_w += sep_token_w
+                cur_line.append((st, False))
+                cur_w += tw_sub
+
+            if cur_line:
+                lines.append(cur_line)
+
+            # Draw each wrapped line right-aligned
+            c.setFont(HEADING_FONT, STOCH_SUB_FS)
+            for line_tokens in lines:
+                if y < C_BOT + STOCH_SUB_LH:
+                    break
+                # measure total line width
+                line_w = sum(Wid(tok, HEADING_FONT, STOCH_SUB_FS) for tok, _ in line_tokens)
+                # draw RTL: start from right edge, move left token by token
+                draw_x = sub_right - line_w
+                for tok, is_sep in line_tokens:
+                    tw_tok = Wid(tok, HEADING_FONT, STOCH_SUB_FS)
+                    if is_sep:
+                        c.setFillColorRGB(0.55, 0.55, 0.55)
+                    else:
+                        c.setFillColorRGB(0.25, 0.25, 0.25)
+                    c.drawString(draw_x, y, tok)
+                    draw_x += tw_tok
+                y -= STOCH_SUB_LH
+
+        y -= STOCH_GAP_AFTER_ANAF
+
+    # Post ornament
+    if y > C_BOT + 20:
+        draw_post_anaf_divider_band(c, C_LEFT + C_W / 2, y, C_W * 0.6)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # FOOTNOTE MARKER HANDLING
@@ -4836,6 +5034,135 @@ def anaf_heading_height(has_name=True, label='', name=''):
         return ANAF_FS + INTER + name_fs + (n_lines - 1) * line_step
     return ANAF_FS + INTER + ANAF_NAME_FS
 
+def draw_section_title_page(c, title, subtitle='', number=''):
+    """Render a full decorative section title page (full page, no columns).
+
+    Layout (top→bottom, centered):
+      - top ornament rule
+      - section number (e.g. "חלק ראשון")
+      - large title text in ornamental box
+      - subtitle (smaller, italic-style)
+      - bottom ornament rule
+    """
+    import math
+    cx = PAGE_W / 2
+    cy = PAGE_H / 2
+
+    # ── Background: very light warm tint ──────────────────────────────────
+    c.setFillColorRGB(0.995, 0.990, 0.978)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+
+    # ── Corner ornaments (if available) ───────────────────────────────────
+    corner_paths = [
+        os.path.join(_ORNAMENT_DIR, 'corner_ornament_a.png'),
+        os.path.join(_ORNAMENT_DIR, 'corner_ornament_b.png'),
+    ]
+    corner_src = next((p for p in corner_paths if os.path.exists(p)), None)
+    if corner_src:
+        csz = 54.0  # corner size in pt
+        pad = 18.0
+        for (x, y_c, flipH, flipV) in [
+            (pad, PAGE_H - pad - csz, False, False),          # top-right (RTL)
+            (PAGE_W - pad - csz, PAGE_H - pad - csz, True, False),  # top-left
+            (pad, pad, False, True),                           # bottom-right
+            (PAGE_W - pad - csz, pad, True, True),            # bottom-left
+        ]:
+            try:
+                from PIL import Image as _PI
+                ci = _PI.open(corner_src).convert('RGBA')
+                if flipH: ci = ci.transpose(_PI.FLIP_LEFT_RIGHT)
+                if flipV: ci = ci.transpose(_PI.FLIP_TOP_BOTTOM)
+                tmp = os.path.join(_ORNAMENT_DIR, f'_corner_tmp_{int(flipH)}{int(flipV)}.png')
+                ci.save(tmp)
+                c.drawImage(tmp, x, y_c, width=csz, height=csz, mask='auto')
+            except Exception:
+                pass
+
+    # ── Top horizontal rule ────────────────────────────────────────────────
+    rule_y_top = PAGE_H - 54.0
+    rule_y_bot = 54.0
+    rule_x0 = 36.0; rule_x1 = PAGE_W - 36.0
+
+    def _draw_rule(y_rule):
+        c.setStrokeColorRGB(0.55, 0.42, 0.18)
+        c.setLineWidth(0.6)
+        c.line(rule_x0, y_rule + 3, rule_x1, y_rule + 3)
+        c.setLineWidth(1.4)
+        c.line(rule_x0, y_rule, rule_x1, y_rule)
+        c.setLineWidth(0.6)
+        c.line(rule_x0, y_rule - 3, rule_x1, y_rule - 3)
+
+    _draw_rule(rule_y_top)
+    _draw_rule(rule_y_bot)
+
+    # ── Section number (e.g. "חלק ראשון") ────────────────────────────────
+    content_top = rule_y_top - 28.0
+    content_bot = rule_y_bot + 28.0
+    content_h   = content_top - content_bot
+
+    y_cursor = content_top
+
+    if number:
+        num_fs = 13.0
+        num_font = S.HEADING_FONT_NAME if hasattr(S, 'HEADING_FONT_NAME') else HEADING_BOLD_FONT
+        num_vis = vis(livorna_fix_quotes(strip_nikud(number)))
+        num_w = Wid(num_vis, num_font, num_fs)
+        c.setFont(num_font, num_fs)
+        c.setFillColorRGB(0.45, 0.32, 0.08)
+        c.drawString(cx - num_w / 2, y_cursor - num_fs, num_vis)
+        y_cursor -= num_fs * 2.2
+
+    # ── Main title in ornamental box ──────────────────────────────────────
+    title_fs = getattr(S, 'SEFER_TITLE_FS', 26.0) * 1.15
+    title_font = S.TITLE_FONT_NAME if hasattr(S, 'TITLE_FONT_NAME') else HEADING_BOLD_FONT
+    title_clean = livorna_fix_quotes(strip_nikud(title))
+    title_words = title_clean.split()
+    max_title_w = (PAGE_W - 80.0)
+    title_lines = wrap_words_balanced(title_words, max_title_w, title_font, title_fs)
+    n_title_lines = len(title_lines)
+    title_text_h = title_fs if n_title_lines == 1 else n_title_lines * title_fs * 1.2
+
+    # Box dimensions
+    frame_pad_x = 36.0; frame_pad_y = 14.0
+    orn_h = _mamar_orn_h_pt()
+    max_lw = max(Wid(vis(' '.join(lw)), title_font, title_fs) for lw in title_lines)
+    box_w = min(max_lw + frame_pad_x * 2, PAGE_W - 60.0)
+    box_h = 2 * orn_h + title_text_h + frame_pad_y * 2
+
+    # Center the box vertically in the content area
+    box_top = cy + box_h / 2
+    box_left = cx - box_w / 2
+
+    draw_mamar_box(c, box_left, box_top - box_h, box_w, box_h, orn_h_pt=orn_h)
+
+    # Title text
+    BODY_CENTRE_ABOVE_BL = 0.2475
+    box_rect_cy = (box_top - box_h) + orn_h + (title_text_h + frame_pad_y * 2) / 2
+    first_bl = box_rect_cy - BODY_CENTRE_ABOVE_BL * title_fs + (n_title_lines - 1) * title_fs * 1.2 / 2
+    c.setFillColorRGB(0.10, 0.08, 0.04)
+    for lw in title_lines:
+        lv = vis(' '.join(lw))
+        lw_px = Wid(lv, title_font, title_fs)
+        c.setFont(title_font, title_fs)
+        c.drawString(cx - lw_px / 2, first_bl, lv)
+        first_bl -= title_fs * 1.2
+
+    # ── Subtitle ──────────────────────────────────────────────────────────
+    if subtitle:
+        sub_fs = 12.0
+        sub_font = S.HEADING_FONT_NAME if hasattr(S, 'HEADING_FONT_NAME') else HEADING_BOLD_FONT
+        sub_clean = livorna_fix_quotes(strip_nikud(subtitle))
+        sub_vis = vis(sub_clean)
+        sub_w = Wid(sub_vis, sub_font, sub_fs)
+        sub_y = box_top - box_h - 22.0
+        c.setFont(sub_font, sub_fs)
+        c.setFillColorRGB(0.35, 0.25, 0.08)
+        c.drawString(cx - sub_w / 2, sub_y, sub_vis)
+
+    # ── Page number: none on section title pages ───────────────────────────
+    # (intentionally blank — traditional seforim leave section dividers unnumbered)
+
+
 def draw_section_header(c, text, y, kind='section'):
     text_clean = livorna_fix_quotes(strip_nikud(text))
     text_vis = vis(text_clean)
@@ -5320,36 +5647,12 @@ def _reflow_lines(lines, target_count):
 
 def _compute_top_pads(h1_final, h2_final, c1d=None, c2d=None, para_run=None,
                       allow_subhead_top_pad=False):
-    """Apply only small top-padding to absorb residual imbalance.
+    """Top-padding is disabled in strict zero-diff mode.
 
-    This stays below a quarter line so it does not create visible column-top
-    gaps, but it cleans up the remaining 1-4pt mismatches that gap balancing
-    alone may leave behind.
-
-    Exception: never pad a column whose first fragment is a subhead, unless
-    the caller explicitly allows it for a special page-top case where the
-    columns start well below the page top (e.g. after sefer_title + anaf)."""
-    def _first_is_subhead(cd):
-        if not cd or para_run is None:
-            return False
-        kind, pi, k = cd[0]
-        return _is_subhead_frag(para_run, kind, pi, k)
-
-    diff = h1_final - h2_final
-    if abs(diff) <= 0.05:
-        return 0.0, 0.0
-    pad = min(abs(diff), MAX_TOP_PAD)
-    if pad <= 0.05:
-        return 0.0, 0.0
-    if diff > 0:
-        # col2 is shorter — would pad col2 down; suppress if col2 starts with subhead
-        if _first_is_subhead(c2d) and not allow_subhead_top_pad:
-            return 0.0, 0.0
-        return 0.0, pad
-    # col1 is shorter — would pad col1 down; suppress if col1 starts with subhead
-    if _first_is_subhead(c1d) and not allow_subhead_top_pad:
-        return 0.0, 0.0
-    return pad, 0.0
+    We keep both columns anchored to the same top baseline and solve balance
+    only by content reflow/splitting and regular inter-paragraph gaps.
+    """
+    return 0.0, 0.0
 
 
 def _col_layout_residual(para_run, c1d, c2d, e1, e2):
@@ -5418,6 +5721,12 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
     _trace.set_phase(f'col_layout.d{_depth}')
     n = len(para_run)
     lc = [p['nlines'] for p in para_run]
+
+    def _can_within_split_para(p):
+        # Within-para split indexes by line position; only safe when each
+        # descriptor represents exactly one visual line.
+        return all(ld.get('nlines', 1) == 1 for ld in p.get('lines', []))
+
     _para_desc = ','.join(
         ('sub' if p.get('is_subhead') else f'body({p["nlines"]})') for p in para_run)
     _trace.log('col_layout_entry',
@@ -5468,7 +5777,7 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
         through gap stretching alone, so line spacing within paragraphs stays normal.
         """
         MAX_E_PER_GAP = LH * 1.5   # reasonable max per gap (~26pt) — must match _effective_residual
-        MAX_ELH = 0.0              # DISABLED: never stretch line spacing within paragraphs
+        MAX_ELH = LH * 0.08        # allow up to 8% LH micro-stretch as last resort (visually imperceptible)
 
         def _base_h(cd):
             h = 0.0
@@ -5531,6 +5840,21 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
             return sum(1 for ci in range(len(cd) - 1)
                        if not _sub_after_is_locked(para_run, cd[ci][0], cd[ci][1], cd[ci][2]))
 
+        def _line_count(cd):
+            """Count total text lines in a column descriptor (for elh distribution)."""
+            total = 0
+            for kind, pi, k in cd:
+                para = para_run[pi]
+                if para.get('is_subhead'):
+                    total += 1
+                elif kind == 'whole':
+                    total += len(para['lines'])
+                elif kind == 'head':
+                    total += k
+                elif kind == 'tail':
+                    total += len(para['lines']) - k
+            return max(1, total)
+
         def _apply_stretch(remaining, cd):
             """Compute e for this column to stretch it by up to `remaining` pt.
             Returns (e, actual_stretch_applied).
@@ -5572,7 +5896,8 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
                 if _is_subhead_ending_frag(para_run, cd[ci][0], cd[ci][1], cd[ci][2])
             )
             reg_shrink_cap = sum(
-                max(0.0, _inter_frag_gap(para_run, cd, ci, 0.0) - MIN_PARA_GAP)
+                max(0.0, _inter_frag_gap(para_run, cd, ci, 0.0)
+                       - _inter_frag_gap(para_run, cd, ci, -1e9))  # use actual floor, not MIN_PARA_GAP
                 for ci in range(len(cd) - 1)
                 if not _is_subhead_ending_frag(para_run, cd[ci][0], cd[ci][1], cd[ci][2])
             )
@@ -5591,23 +5916,45 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
         remaining = abs(diff)
 
         if diff > 0:
-            # col1 is taller — stretch col2 gaps, then shrink col1 gaps
+            # col1 is taller — stretch col2 gaps, then shrink col1 gaps, then elh on col2
             e2, used2 = _apply_stretch(remaining, c2d)
             remaining -= used2
             if remaining > 0.05:
                 e1_shrink, used1 = _apply_shrink(remaining, c1d)
                 e1 = e1_shrink
                 remaining -= used1
-            # Stage 3: line-height stretch on col2 — DISABLED (MAX_ELH=0)
+            # Stage 3a: micro line-height stretch on col2 to absorb residual
+            if remaining > 0.05 and MAX_ELH > 0:
+                n2 = _line_count(c2d)
+                if n2 > 0:
+                    elh2 = min(MAX_ELH, remaining / n2)
+                    remaining -= elh2 * n2
+            # Stage 3b: micro line-height shrink on col1 if still unbalanced
+            if remaining > 0.05 and MAX_ELH > 0:
+                n1 = _line_count(c1d)
+                if n1 > 0:
+                    elh1 = -min(MAX_ELH, remaining / n1)
+                    remaining -= abs(elh1) * n1
         else:
-            # col2 is taller — stretch col1 gaps, then shrink col2 gaps
+            # col2 is taller — stretch col1 gaps, then shrink col2 gaps, then elh on col1
             e1, used1 = _apply_stretch(remaining, c1d)
             remaining -= used1
             if remaining > 0.05:
                 e2_shrink, used2 = _apply_shrink(remaining, c2d)
                 e2 = e2_shrink
                 remaining -= used2
-            # Stage 3: line-height stretch on col1 — DISABLED (MAX_ELH=0)
+            # Stage 3a: micro line-height stretch on col1 to absorb residual
+            if remaining > 0.05 and MAX_ELH > 0:
+                n1 = _line_count(c1d)
+                if n1 > 0:
+                    elh1 = min(MAX_ELH, remaining / n1)
+                    remaining -= elh1 * n1
+            # Stage 3b: micro line-height shrink on col2 if still unbalanced
+            if remaining > 0.05 and MAX_ELH > 0:
+                n2 = _line_count(c2d)
+                if n2 > 0:
+                    elh2 = -min(MAX_ELH, remaining / n2)
+                    remaining -= abs(elh2) * n2
 
         return e1, e2, elh1, elh2
 
@@ -5654,7 +6001,7 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
         nL = lc[0]
         if nL < 2:
             return _ret([('whole', 0, None)], [], 0.0, 0.0, 0.0, 0.0, 'single_para_too_short')
-        if nL <= MIN_PART_LINES * 2 - 1:
+        if nL <= MIN_HEAD_LINES + MIN_TAIL_LINES - 1:
             best_k = nL // 2
             c1d = [('head', 0, best_k)]
             c2d = [('tail', 0, best_k)]
@@ -5662,7 +6009,10 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
             e1, e2, elh1, elh2 = _compute_padding(c1d, c2d, h1, h2)
             return _ret(c1d, c2d, e1, e2, elh1, elh2, 'single_para_small')
         best_k, best_d = nL // 2, float('inf')
-        for k in range(MIN_PART_LINES, nL - MIN_PART_LINES + 1):
+        if not _can_within_split_para(para_run[0]):
+            return _ret([('whole', 0, None)], [], 0.0, 0.0, 0.0, 0.0,
+                        'single_para_compressed_no_split')
+        for k in range(MIN_HEAD_LINES, nL - MIN_TAIL_LINES + 1):
             d = abs(k - (nL - k))
             if d < best_d or (abs(d - best_d) <= 0.01 and k > best_k):
                 best_d, best_k = d, k
@@ -5834,9 +6184,10 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
     # 2. Within-para splits
     for pi in range(n):
         if para_run[pi].get('is_subhead'): continue
+        if not _can_within_split_para(para_run[pi]): continue
         nL = lc[pi]
-        if nL < MIN_PART_LINES * 2: continue
-        for k in range(MIN_PART_LINES, nL - MIN_PART_LINES + 1):
+        if nL < MIN_HEAD_LINES + MIN_TAIL_LINES: continue
+        for k in range(MIN_HEAD_LINES, nL - MIN_TAIL_LINES + 1):
             c1d = ([('whole', i, None) for i in range(pi)] + [('head', pi, k)])
             c2d = ([('tail', pi, k)] + [('whole', i, None) for i in range(pi + 1, n)])
             # BUG FIX: Check NEITHER column ends with orphaned subhead
@@ -5896,9 +6247,9 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
             if len(prefix) == 1:
                 # Single body paragraph — split it across columns, append subhead to col2
                 nL_body = prefix[0]['nlines']
-                if nL_body >= MIN_PART_LINES * 2:
+                if nL_body >= MIN_HEAD_LINES + MIN_TAIL_LINES:
                     best_k = nL_body // 2
-                    for k in range(MIN_PART_LINES, nL_body - MIN_PART_LINES + 1):
+                    for k in range(MIN_HEAD_LINES, nL_body - MIN_TAIL_LINES + 1):
                         d = abs(k - (nL_body - k))
                         if d < abs(best_k - (nL_body - best_k)):
                             best_k = k
@@ -5942,8 +6293,8 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
     residual = abs(fh1 - fh2)
 
     # Only try reflow if gap stretching left a significant residual.
-    # LH * 0.25 (~4.4pt) means gap stretching truly couldn't handle the imbalance.
-    REFLOW_THRESHOLD = LH * 0.25
+    # LH * 0.18 (~3.2pt) means gap stretching truly couldn't handle the imbalance.
+    REFLOW_THRESHOLD = LH * 0.18
     # Reflow must improve residual by at least this much to be worth
     # the justification degradation from changing paragraph line counts.
     # Lowered from LH*0.3 to LH*0.05 so reflow is accepted for any meaningful gain.
@@ -5972,8 +6323,8 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
             for pi2 in range(n):
                 if para_run[pi2].get('is_subhead'): continue
                 rnL2 = para_run[pi2]['nlines']
-                if rnL2 < MIN_PART_LINES * 2: continue
-                for rk in range(MIN_PART_LINES, rnL2 - MIN_PART_LINES + 1):
+                if rnL2 < MIN_HEAD_LINES + MIN_TAIL_LINES: continue
+                for rk in range(MIN_HEAD_LINES, rnL2 - MIN_TAIL_LINES + 1):
                     rc1d = ([('whole', i, None) for i in range(pi2)] + [('head', pi2, rk)])
                     rc2d = ([('tail', pi2, rk)] + [('whole', i, None) for i in range(pi2 + 1, n)])
                     if _ends_with_orphaned_subhead(rc1d): continue
@@ -6080,9 +6431,9 @@ def _col_layout(para_run, allow_trailing_subhead=False, max_height=None):
                 if para_run[pi].get('is_subhead'):
                     continue
                 nL_pi = lc[pi]
-                if nL_pi < MIN_PART_LINES * 2:
+                if nL_pi < MIN_HEAD_LINES + MIN_TAIL_LINES:
                     continue
-                for k in range(MIN_PART_LINES, nL_pi - MIN_PART_LINES + 1):
+                for k in range(MIN_HEAD_LINES, nL_pi - MIN_TAIL_LINES + 1):
                     hc_c1d = ([('whole', i, None) for i in range(pi)]
                               + [('head', pi, k)])
                     hc_c2d = ([('tail', pi, k)]
@@ -6180,7 +6531,14 @@ def _draw_col_pair(c, para_run, c1d, c2d, e1, e2, y_top, fn_counter_before,
                           else para['lines'][:k] if kind == 'head'
                           else para['lines'][k:])
             if kind == 'whole':
-                ht = draw_precomputed_lines(c, para['lines'], x_right, y,
+                draw_lines = para['lines']
+                # If this para is a page-level continuation, the first line may
+                # carry a dropcap indent from the previous page — strip it.
+                if para.get('is_page_continuation') and draw_lines and \
+                        draw_lines[0].get('type') in ('dc2', 'dc1'):
+                    import copy
+                    draw_lines = [dict(draw_lines[0], xr_off=0, width=COL_W, type='body')] + list(draw_lines[1:])
+                ht = draw_precomputed_lines(c, draw_lines, x_right, y,
                                             is_last_centered=para_ends,
                                             fn_counter_base=fn_base, extra_lh=elh)
             elif kind == 'head':
@@ -6188,7 +6546,13 @@ def _draw_col_pair(c, para_run, c1d, c2d, e1, e2, y_top, fn_counter_before,
                                             is_last_centered=False,
                                             fn_counter_base=fn_base, extra_lh=elh)
             else:
-                ht = draw_precomputed_lines(c, para['lines'][k:], x_right, y,
+                tail_lines = para['lines'][k:]
+                # If the tail starts at a dropcap-indented line (dc2), strip
+                # its indent — the dropcap itself is in the previous column.
+                if tail_lines and tail_lines[0].get('type') in ('dc2', 'dc1'):
+                    import copy
+                    tail_lines = [dict(tail_lines[0], xr_off=0, width=COL_W, type='body')] + list(tail_lines[1:])
+                ht = draw_precomputed_lines(c, tail_lines, x_right, y,
                                             is_last_centered=para_ends,
                                             fn_counter_base=fn_base, extra_lh=elh)
             # Layout log entry for this fragment
@@ -6255,6 +6619,7 @@ class PageLayout:
         self.current_anaf_label = ""
         self.current_anaf_name = ""
         self.anaf_page_map = {}   # label -> page_num (content page, before TOC offset)
+        self.sub_page_map  = {}   # subheading text -> page_num (first occurrence)
         self._layout_log = []    # list of dicts, one per rendered element
         self._page_plans = {}
         self._qa_issues = []
@@ -6469,6 +6834,17 @@ class PageLayout:
                 })
                 last_heading_kind = None
 
+            elif item['type'] == 'section_title_page':
+                # Full-page section divider — rendered as its own page, not in columns
+                elements.append({
+                    'kind': 'section_title_page',
+                    'title': item.get('title', item.get('text', '')),
+                    'subtitle': item.get('subtitle', ''),
+                    'number': item.get('number', ''),
+                    'source_idxs': list(item.get('_source_idxs', [])),
+                })
+                last_heading_kind = 'section_title_page'
+
             elif item['type'] == 'body':
                 segments = item.get('segments')
                 if segments:
@@ -6504,28 +6880,70 @@ class PageLayout:
         self._qa_summary = self._build_qa_report(elements, self._page_plans)
         self.cv.save()
 
+        # Build sub_page_map from layout log (subhead text → first page it appears on)
+        for entry in self._layout_log:
+            if entry.get('kind') == 'subhead':
+                txt = entry.get('text', '').strip()
+                pg  = max(1, entry.get('page', 5) - 4)   # convert to display page
+                if txt and txt not in self.sub_page_map:
+                    self.sub_page_map[txt] = pg
+
         # ── Build front matter and prepend it ──────────────────────────────
-        # Collect anaf entries in order with their (content) page numbers.
+        # Collect anaf entries with their subheadings and page numbers.
         # Printed content page numbering starts at 1.
         anaf_entries = []
+        anaf_entries_with_subs = []
+        cur_anaf_subs = []
+        cur_anaf_info = None
+
         for item in items_to_render:
             if item['type'] == 'heading1':
-                lbl = item['label']
+                # Flush previous anaf
+                if cur_anaf_info is not None:
+                    anaf_entries_with_subs.append({**cur_anaf_info, 'subheadings': cur_anaf_subs})
+                lbl  = item['label']
                 name = item.get('name', '')
-                pg = self.anaf_page_map.get(lbl, 1)
+                pg   = self.anaf_page_map.get(lbl, 1)
                 anaf_entries.append((lbl, name, pg))
+                cur_anaf_info = {'label': lbl, 'name': name, 'page': pg}
+                cur_anaf_subs = []
+            elif item['type'] == 'heading2' and cur_anaf_info is not None:
+                # Look up page from layout log; fall back to anaf page
+                sub_pg = self.sub_page_map.get(item['text'], cur_anaf_info['page'])
+                cur_anaf_subs.append({'text': item['text'], 'page': sub_pg})
+
+        if cur_anaf_info is not None:
+            anaf_entries_with_subs.append({**cur_anaf_info, 'subheadings': cur_anaf_subs})
+
+        # Determine how many front-matter pages we need
+        # Base: page 1 = shaar blatt, page 2 = contact, page 3 = TOC, page 4 = blank
+        # Optional: page 5 = stocheniyanim mefurat, page 6 = blank verso
+        use_stoch = getattr(S, 'STOCHENIYANIM_MEFURAT', False)
+        n_front_pages = 6 if use_stoch else 4   # shaar blatt counted separately
 
         front_pdf_path = self.out_pdf.replace('.pdf', '_front_tmp.pdf')
         front_cv = rl_canvas.Canvas(front_pdf_path, pagesize=(PAGE_W, PAGE_H))
+
         # Page 2: contact
         draw_contact_page(front_cv)
         front_cv.showPage()
-        # Page 3: TOC
+
+        # Page 3: main TOC (tochn inyanim)
         draw_toc_page(front_cv, anaf_entries, page_offset=1)
         front_cv.showPage()
-        # Page 4: blank verso before body starts
+
+        # Page 4: blank verso
         set_page_geometry(4)
         front_cv.showPage()
+
+        if use_stoch:
+            # Page 5: stocheniyanim mefurat (detailed TOC with subheadings)
+            draw_stocheniyanim_mefurat_page(front_cv, anaf_entries_with_subs, page_num=5)
+            front_cv.showPage()
+            # Page 6: blank verso before body
+            set_page_geometry(6)
+            front_cv.showPage()
+
         front_cv.save()
 
         # Merge: shaar blatt (page 1) + front matter + content pages
@@ -6849,6 +7267,18 @@ class PageLayout:
                        line_off=cur_ln_off, used_h=round(used_h, 2),
                        acc_n=len(acc_paras))
 
+            if el['kind'] == 'section_title_page':
+                # Always gets its own page — flush current page and break
+                flush_acc()
+                plan.append({'kind': 'section_title_page',
+                             'title': el['title'], 'subtitle': el.get('subtitle', ''),
+                             'number': el.get('number', ''),
+                             'height': PAGE_H,   # occupies full page
+                             'orig_el_idx': cur_el_idx,
+                             'source_idxs': list(el.get('source_idxs', []))})
+                cur_el_idx += 1; cur_ln_off = 0; cur_fn_off = 0
+                break   # force page break after section title page
+
             if el['kind'] == 'sefer_title':
                 flush_acc()
                 page_empty = False
@@ -6927,6 +7357,8 @@ class PageLayout:
             _visual_nlines = sum(ld.get('nlines', 1) for ld in remaining_lines)
             trial_para = {'lines': remaining_lines, 'nlines': _visual_nlines, 'is_para_end': True,
                           'orig_el_idx': cur_el_idx}
+            if cur_ln_off > 0:
+                trial_para['is_page_continuation'] = True  # started mid-para on prev page
             if el.get('is_subhead'): trial_para['is_subhead'] = True
             trial_para['source_idxs'] = list(el.get('source_idxs', [cur_el_idx]))
 
@@ -6941,6 +7373,7 @@ class PageLayout:
                                                    allow_subhead_top_pad=_allow_subhead_top_pad)
             trial_h = _col_height(trial_acc, c1d, c2d, e1, e2, elh1, elh2,
                                   e_top1=_tr_top1, e_top2=_tr_top2)
+            _trial_residual = _col_layout_residual(trial_acc, c1d, c2d, e1, e2)
 
             _last_plan_kind = plan[-1]['kind'] if plan else None
             _last_is_heading = _last_plan_kind in ('anaf', 'anaf_sub', 'section', 'sefer_title')
@@ -6953,6 +7386,7 @@ class PageLayout:
                        f'nlines={_visual_nlines} trial_h={trial_h:.1f} sep={sep:.1f} '
                        f'orn_h={_orn_h_after(cur_el_idx+1):.1f} '
                        f'total_need={_total_need:.1f} avail={_avail_now:.1f} '
+                       f'residual={_trial_residual:.2f} '
                        f'fits={_total_need <= _avail_now + 0.01}',
                        el_idx=cur_el_idx, nlines=_visual_nlines,
                        trial_h=round(trial_h, 2), avail=round(_avail_now, 2),
@@ -6996,12 +7430,17 @@ class PageLayout:
             best_split_score = None
             _trace.log('split_start',
                        f'el[{cur_el_idx}] doesnt fit whole, nL={nL} MIN_PART={MIN_PART_LINES} '
-                       f'trying split nn={nL - MIN_PART_LINES}..{MIN_PART_LINES}',
+                       f'trying split nn={nL - MIN_TAIL_LINES}..{MIN_HEAD_LINES}',
                        el_idx=cur_el_idx, nL=nL)
 
             _trace.set_phase('render_page.split_loop')
-            for nn in range(nL - MIN_PART_LINES, MIN_PART_LINES - 1, -1):
-                if nn < MIN_PART_LINES: break
+            for nn in range(nL - MIN_TAIL_LINES, MIN_HEAD_LINES - 1, -1):
+                if nn < MIN_HEAD_LINES: break
+                # Guard: visual line counts must each meet head/tail minimums
+                _head_vis_lines = sum(ld.get('nlines', 1) for ld in remaining_lines[:nn])
+                _tail_vis_lines = sum(ld.get('nlines', 1) for ld in remaining_lines[nn:])
+                if _head_vis_lines < MIN_HEAD_LINES or _tail_vis_lines < MIN_TAIL_LINES:
+                    continue
                 fn_in_head = _count_fns_in_lines(remaining_lines[:nn])
                 head_fn_lds = []
                 for fi in range(fn_in_head):
@@ -7038,9 +7477,11 @@ class PageLayout:
                                       e_top1=_tt_top1, e_top2=_tt_top2)
 
                 _split_fits = used_h + t_h + sep2 + _split_orn_h <= body_avail(len(t_fns)) + 0.01
+                _split_residual = _col_layout_residual(t_acc, tc1, tc2, te1, te2)
                 _trace.log('split_try',
                            f'nn={nn} t_h={t_h:.1f} avail_cols={avail_for_cols:.1f} '
-                           f'height_constrained={_used_height_constraint} fits={_split_fits}',
+                           f'height_constrained={_used_height_constraint} '
+                           f'fits={_split_fits} residual={_split_residual:.2f}',
                            nn=nn, t_h=round(t_h, 2), avail=round(avail_for_cols, 2),
                            fits=_split_fits)
                 if _split_fits:
@@ -7145,8 +7586,8 @@ class PageLayout:
                 if acc_paras:
                     retry_best_n = 0
                     _trace.set_phase('render_page.pullback_retry')
-                    for nn2 in range(nL - MIN_PART_LINES, MIN_PART_LINES - 1, -1):
-                        if nn2 < MIN_PART_LINES: break
+                    for nn2 in range(nL - MIN_TAIL_LINES, MIN_HEAD_LINES - 1, -1):
+                        if nn2 < MIN_HEAD_LINES: break
                         fn_in_head2 = _count_fns_in_lines(remaining_lines[:nn2])
                         head_fn_lds2 = []
                         for fi2 in range(fn_in_head2):
@@ -7259,9 +7700,9 @@ class PageLayout:
                         # Next page has balance trouble — try reducing best_n
                         _la_best_n = best_n
                         _la_best_res = _np_res
-                        for _la_try in range(best_n - 1, MIN_PART_LINES - 1, -1):
+                        for _la_try in range(best_n - 1, MIN_HEAD_LINES - 1, -1):
                             # Check this page still fits with fewer lines
-                            if _la_try < MIN_PART_LINES:
+                            if _la_try < MIN_HEAD_LINES:
                                 # _la_try == 0 is also valid: don't split at all
                                 if _la_try > 0:
                                     break
@@ -7286,7 +7727,7 @@ class PageLayout:
                         if _la_best_n != best_n:
                             # Also verify the CURRENT page still balances OK
                             # with the reduced best_n
-                            if _la_best_n >= MIN_PART_LINES:
+                            if _la_best_n >= MIN_HEAD_LINES:
                                 _la_vnl = sum(ld.get('nlines', 1)
                                               for ld in remaining_lines[:_la_best_n])
                                 _la_para = {'lines': remaining_lines[:_la_best_n],
@@ -7438,8 +7879,7 @@ class PageLayout:
 
         # ── Last-resort balance bleed ──
         is_final_flush = (cur_el_idx >= len(elements))
-        BLEED_THRESHOLD     = LH * 0.5
-        BLEED_MIN_IMPROVEMENT = LH * 0.5
+        BLEED_THRESHOLD = ZERO_DIFF_TOL   # try bleed for any residual > 0.05pt
         if (not is_final_flush
                 and acc_paras
                 and not acc_paras[-1].get('is_subhead')
@@ -7457,10 +7897,10 @@ class PageLayout:
                 _last_nL     = _last_para['nlines']
                 _best_bleed = 0
                 _best_res   = _bl_res
-                for _bleed in (1, 2):
+                # Try all valid bleed amounts (exhaustive search for best balance)
+                _max_bleed = max(0, _last_nL - MIN_PART_LINES)
+                for _bleed in range(1, _max_bleed + 1):
                     _keep = _last_nL - _bleed
-                    if _keep < MIN_PART_LINES:
-                        break
                     # Guard: don't bleed if the bled lines would be an
                     # orphan on the next page.  Count total remaining lines
                     # of this element after the bleed.
@@ -7491,6 +7931,8 @@ class PageLayout:
                     if _tr_res < _best_res - BLEED_MIN_IMPROVEMENT:
                         _best_res   = _tr_res
                         _best_bleed = _bleed
+                        if _best_res <= ZERO_DIFF_TOL:
+                            break  # perfect balance achieved, no need to try more
                 if _best_bleed > 0:
                     _trace.log('bleed_applied',
                                f'bleeding {_best_bleed} lines, new residual={_best_res:.2f}',
@@ -7726,7 +8168,24 @@ class PageLayout:
         for bi, block in enumerate(plan):
             next_block = plan[bi + 1] if bi + 1 < len(plan) else None
 
-            if block['kind'] in ('sefer_title', 'section', 'anaf', 'anaf_sub'):
+            if block['kind'] in ('sefer_title', 'section', 'anaf', 'anaf_sub', 'section_title_page'):
+                if block['kind'] == 'section_title_page':
+                    draw_section_title_page(c,
+                        block.get('title', ''),
+                        block.get('subtitle', ''),
+                        block.get('number', ''))
+                    h = 0  # full page already consumed
+                    self._layout_log.append({
+                        'page': self.page_num, 'display_pg': max(1, self.page_num - 4),
+                        'col': 0, 'y_top': PAGE_H, 'height': PAGE_H, 'y_bot': 0,
+                        'el_idx': block.get('orig_el_idx', ''),
+                        'source_idxs': list(block.get('source_idxs', [])),
+                        'kind': 'section_title_page', 'frag': 'full', 'n_lines': 1,
+                        'rendered_text': block.get('title', ''),
+                        'text': block.get('title', '')[:80],
+                    })
+                    render_y -= h
+                    continue
                 if block['kind'] == 'anaf':
                     self.current_anaf_label = block['label']
                     self.current_anaf_name = block.get('name', '')
@@ -7955,3 +8414,34 @@ Usage examples:
 
 if __name__ == "__main__":
     main()
+
+
+# FUNCTION: build_column_content
+def build_column_content(self, paras, col_x, col_y, col_w, col_h, is_first_col=False):
+    """
+    Build content for a single column with perfect balancing.
+    """
+    column_paras = []
+    y = col_y
+    line_gap = self.line_height * 0.15
+    
+    for i, para in enumerate(paras):
+        # Calculate available space
+        available_height = y - (col_y - col_h)
+        
+        # Check if paragraph fits
+        para_height = self.estimate_paragraph_height(para, col_w)
+        
+        if available_height < para_height and len(column_paras) > 0:
+            # Column is full, break to next column
+            break
+        
+        # Draw paragraph
+        drawn_height = self.draw_paragraph(para, col_x, y, col_w)
+        column_paras.append(para)
+        y -= drawn_height + line_gap
+        
+        # Update paragraph position for balancing
+        para.y = y + drawn_height
+    
+    return column_paras, i

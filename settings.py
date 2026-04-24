@@ -31,9 +31,9 @@ TITLE_PAGE      = False  # no title page
 FONTS_DIR       = os.path.join(BASE_DIR, "fonts")
 FIXED_FONTS_DIR = os.path.join(BASE_DIR, "fonts")
 
-# Body font — EFT Lituf Bold
-BODY_FONT_PATH  = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_LITUF BOLD.TTF"
-BODY_FONT_NAME  = "1carizma"
+# Body font — Carizma Regular
+BODY_FONT_PATH  = "/data/fonts/Fonts (2) (5)/Fonts (2)/1CarizmaRegular.ttf"
+BODY_FONT_NAME  = "carizma"
 
 # Heading font — EFT Frankfurt Bold / Regular (all headings + title + header)
 HEADING_FONT_PATH      = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_FRANKFURT BOLD.TTF"
@@ -41,32 +41,32 @@ HEADING_FONT_NAME      = "pninamedium"
 HEADING_FONT_REG_PATH  = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_FRANKFURT.TTF"
 HEADING_FONT_REG_NAME  = "pninaregular"
 
-# Dropcap / first-word font — EFT Lituf Black (slightly larger)
-DROPCAP_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_LITUF BLACK.TTF"
-DROPCAP_FONT_NAME = "litufblack"
+# Dropcap / first-word font — Carizma Bold
+DROPCAP_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/1CarizmaBold.ttf"
+DROPCAP_FONT_NAME = "carizmabold"
 
 # Ornament font — BergamotOrnaments (symbol font, keep)
 ORNAMENT_FONT_PATH = "/root/fonts_extracted/Fonts (2)/BergamotOrnaments-3oK6.ttf"
 ORNAMENT_FONT_NAME = "bergamot"
 
-# Bold body font — EFT Lituf Bold (same as body; "bold runs" stay consistent)
-BOLD_BODY_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_LITUF BOLD.TTF"
-BOLD_BODY_FONT_NAME = "1carizmabold"
+# Bold body font — Carizma Bold
+BOLD_BODY_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/1CarizmaBold.ttf"
+BOLD_BODY_FONT_NAME = "carizmabold"
 
 # Even-page header title font — EFT Frankfurt Bold
 EFT_TALPIYOT_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_FRANKFURT BOLD.TTF"
 EFT_TALPIYOT_FONT_NAME = "pninamedium"
 
 # Footnote font — reuse body font
-FN_FONT_NAME    = "1carizma"
+FN_FONT_NAME    = "carizma"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PAGE GEOMETRY (in inches, converted to points at 72 dpi)
 # ═══════════════════════════════════════════════════════════════════════════
 PAGE_W_IN       = 5.5  # page width in inches
 PAGE_H_IN       = 8.5  # page height in inches
-MARGIN_TOP      = 0.75  # top margin in inches
-MARGIN_BOTTOM   = 0.5  # bottom margin in inches
+MARGIN_TOP      = 0.5  # top margin in inches
+MARGIN_BOTTOM   = 0.4  # bottom margin in inches
 MARGIN_LEFT     = 0.5  # left/right (outer) margin in inches
 MARGIN_RIGHT    = 0.5  # left/right (outer) margin in inches
 # inner margin (spine) = same as outer for this book
@@ -86,10 +86,10 @@ NUM_COLS        = 2  # number of columns for body text
 # ═══════════════════════════════════════════════════════════════════════════
 # TYPOGRAPHY — sizes in points
 # ═══════════════════════════════════════════════════════════════════════════
-BODY_FONT_SIZE      = 12.5  # main body font size
+BODY_FONT_SIZE      = 12.2  # main body font size
 BODY_LINE_HEIGHT    = None                   # auto = size * LINE_HEIGHT_MULT
-LINE_HEIGHT_MULT    = 1.26  # line height multiplier
-DROPCAP_SIZE        = 15.5  # dropcap first-word size (Lituf Black, a bit bigger)
+LINE_HEIGHT_MULT    = 1.33  # line height multiplier
+DROPCAP_SIZE        = 12.8  # first word stays visibly larger than body
 DROPCAP_BODY_GAP    = 3.0  # gap between dropcap word and body text
 
 # ── Heading 1 (ענף) ──
@@ -106,7 +106,7 @@ H1_ORNAMENT_COLOR   = (0.486, 0.486, 0.486)  # gray ornaments
 
 # ── Heading 2 (in-column sub-heading) ──
 H2_FONT_SIZE        = 12.5  # same as body
-H2_FONT_NAME        = "litufblack"          # EFT Lituf Black for subheadings
+H2_FONT_NAME        = "pninamedium"         # match subheadings to Frankfurt heading style
 H2_CENTERED         = True  # centered within column
 H2_SPACE_BEFORE     = None                   # auto: PSEP * 1.0 (normal gap, no rules)
 H2_SPACE_AFTER      = None                   # auto: same as PSEP (regular gap)
@@ -122,7 +122,9 @@ PARA_SEP            = None                   # auto: LH * 0.4
 MIN_PARA_GAP        = 3.0  # minimum gap between paragraphs (pt)
 
 # ── Orphan / widow control ──
-MIN_PART_LINES      = 2  # minimum lines in any column fragment
+MIN_PART_LINES      = 1  # allow 1-line widow at column bottom if it helps balance
+MIN_HEAD_LINES      = 1  # min lines kept in col1 head (widow as last resort)
+MIN_TAIL_LINES      = 2  # min lines in col2 tail / next-page tail (no orphan → 2)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # HEADERS / FOOTERS
@@ -246,13 +248,13 @@ MAMAR_BOX_INK_DARKEN_TARGET    = 60     # darkened pixels mapped toward this val
 #   2. dilate slightly + fill white for the visible frame line
 #   3. dilate outward again to create a gray ring outside the white
 #   4. blur only that gray ring so its outer edges fade slightly
-MAMAR_BOX_HALO            = True        # apply halo pipeline
-MAMAR_BOX_HALO_NEAR_DIL   = 1           # matches post-anaf white thickening (3px max-filter kernel)
-MAMAR_BOX_HALO_RING_DIL   = 2           # matches post-anaf outer gray ring growth (7px kernel overall)
-MAMAR_BOX_HALO_FAR_BLUR   = 2.2         # same soft fade used on the post-anaf ornament
-MAMAR_BOX_HALO_WHITE_VAL  = 252         # same slightly-off-white body used in the ornament renderer
-MAMAR_BOX_HALO_GRAY_VAL   = 50          # outer ring gray value — dark like post-anaf
-MAMAR_BOX_HALO_FADE_STRENGTH = 0.85     # peak opacity of gray ring before fade
+MAMAR_BOX_HALO            = True        # apply halo pipeline (now renders gray frame lines)
+MAMAR_BOX_HALO_NEAR_DIL   = 1           # dilation for frame line thickness
+MAMAR_BOX_HALO_RING_DIL   = 2           # (unused in gray mode, kept for compat)
+MAMAR_BOX_HALO_FAR_BLUR   = 2.2         # (unused in gray mode, kept for compat)
+MAMAR_BOX_HALO_WHITE_VAL  = 252         # (unused in gray mode, kept for compat)
+MAMAR_BOX_HALO_GRAY_VAL   = 50          # (unused in gray mode, kept for compat)
+MAMAR_BOX_HALO_FADE_STRENGTH = 0.85     # (unused in gray mode, kept for compat)
 
 # ── Interior fill ──
 # 'white'       → flood interior to pure white (current behaviour)

@@ -573,7 +573,7 @@ load_font(S.BOLD_BODY_FONT_NAME,   S.BOLD_BODY_FONT_PATH)
 load_font(S.EFT_TALPIYOT_FONT_NAME, S.EFT_TALPIYOT_FONT_PATH)
 _GARAMOND_REG  = 'GaramondNo8-Reg'
 _GARAMOND_MED  = 'GaramondNo8-Med'
-_FONT_DIR = "/data/fonts/Fonts (2) (5)/Fonts (2)"
+_FONT_DIR = "/data/palot-v2code/fonts"
 load_font(_GARAMOND_REG, os.path.join(_FONT_DIR, 'GaramondNo8-Reg.ttf'))
 load_font(_GARAMOND_MED, os.path.join(_FONT_DIR, 'GaramondNo8-Med.ttf'))
 UI_SYMBOL_FONT = S.BODY_FONT_NAME
@@ -2376,7 +2376,9 @@ _ANAF_FLANKER_CACHE = {}  # keyed by (needed_w_px, canvas_h_px, side)
 
 def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
     """Flanker ornament: curl near anaf label, 1px tile extends outward, fades at far end."""
-    render_h = 16.0
+    # render_h sets the flanker's drawn height; the spiral curl scales with it.
+    # Reduced ~15% (16.0 -> 13.6) to make the anaf ornament a bit smaller.
+    render_h = 13.6
     ppi = 300
     width = x_right - x_left
     if width < 4:

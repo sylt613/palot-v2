@@ -32,17 +32,17 @@ FONTS_DIR       = os.path.join(BASE_DIR, "fonts")
 FIXED_FONTS_DIR = os.path.join(BASE_DIR, "fonts")
 
 # Body font — Carizma Regular
-BODY_FONT_PATH  = "/data/fonts/Fonts (2) (5)/Fonts (2)/1CarizmaRegular.ttf"
+BODY_FONT_PATH  = "/data/palot-v2code/fonts/1CarizmaRegular.ttf"
 BODY_FONT_NAME  = "carizma"
 
 # Heading font — EFT Frankfurt Bold / Regular (all headings + title + header)
-HEADING_FONT_PATH      = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_FRANKFURT BOLD.TTF"
+HEADING_FONT_PATH      = "/data/palot-v2code/fonts/EFT_FRANKFURT BOLD.TTF"
 HEADING_FONT_NAME      = "pninamedium"
-HEADING_FONT_REG_PATH  = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_FRANKFURT.TTF"
+HEADING_FONT_REG_PATH  = "/data/palot-v2code/fonts/EFT_FRANKFURT.TTF"
 HEADING_FONT_REG_NAME  = "pninaregular"
 
 # Dropcap / first-word font — Carizma Bold
-DROPCAP_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/1CarizmaBold.ttf"
+DROPCAP_FONT_PATH = "/data/palot-v2code/fonts/1CarizmaBold.ttf"
 DROPCAP_FONT_NAME = "carizmabold"
 
 # Ornament font — BergamotOrnaments (symbol font, keep)
@@ -50,11 +50,11 @@ ORNAMENT_FONT_PATH = "/root/fonts_extracted/Fonts (2)/BergamotOrnaments-3oK6.ttf
 ORNAMENT_FONT_NAME = "bergamot"
 
 # Bold body font — Carizma Bold
-BOLD_BODY_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/1CarizmaBold.ttf"
+BOLD_BODY_FONT_PATH = "/data/palot-v2code/fonts/1CarizmaBold.ttf"
 BOLD_BODY_FONT_NAME = "carizmabold"
 
 # Even-page header title font — EFT Frankfurt Bold
-EFT_TALPIYOT_FONT_PATH = "/data/fonts/Fonts (2) (5)/Fonts (2)/EFT_FRANKFURT BOLD.TTF"
+EFT_TALPIYOT_FONT_PATH = "/data/palot-v2code/fonts/EFT_FRANKFURT BOLD.TTF"
 EFT_TALPIYOT_FONT_NAME = "pninamedium"
 
 # Footnote font — reuse body font

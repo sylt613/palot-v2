@@ -1174,17 +1174,21 @@ _GRAY_LEADER = 153  # light gray for post-anaf ornament & header leader (60%)
 _GRAY_DARK = 85    # dark gray for mamar box & anaf flanker (33%)
 
 def draw_post_anaf_divider_band(c, x_center, y_top, width):
-    """Draw the post-anaf section divider: same ornament shape, dilated and filled 66% gray."""
+    """Draw the post-anaf section divider: same ornament shape, dilated and filled 66% gray.
+
+    The working canvas is AUTO-COMPUTED from the actual ink bbox (after the
+    dilation step) plus a safety margin, so no part of the curls is ever
+    clipped against the raster boundary. The drawn footprint on the page
+    (render_h tall, `width` wide at the ink) is held constant regardless of
+    how large the safety margin grows, so pagination is unaffected.
+    """
     render_h    = 22.0
     ppi         = 300
     _PNG_ANAF_END = os.path.join(_ORNAMENT_DIR, 'anaf_end_orn_raw.png')
-    pad_h_px    = 72
-    visible_w_px = max(1, round(width * ppi / 72))
-    needed_w_px = visible_w_px + 2 * pad_h_px
+    dil_size    = 5                       # MaxFilter window (odd); radius = (n-1)/2
+    safety_px   = (dil_size - 1) // 2 + 4 # dilation reach + a little breathing room
     band_h_px   = max(4, round(render_h * ppi / 72))
-    pad_v_px    = 30
-    canvas_h_px = band_h_px + 2 * pad_v_px
-    cache_key   = (visible_w_px, band_h_px)
+    cache_key   = (band_h_px,)
     cached = _POST_ANAF_DIV_CACHE.get(cache_key)
     if cached is None:
         if not os.path.exists(_PNG_ANAF_END):
@@ -1196,29 +1200,50 @@ def draw_post_anaf_divider_band(c, x_center, y_top, width):
             new_w  = max(1, round(src.width * scale))
             src    = src.resize((new_w, band_h_px), Image.LANCZOS)
             alpha_core = src.getchannel('A')
-            # Dilate slightly to thicken the ornament
-            alpha_dilated = alpha_core.filter(ImageFilter.MaxFilter(5))
-            canvas_w = needed_w_px
-            mask = Image.new('L', (canvas_w, canvas_h_px), 0)
-            core_x = max(0, (canvas_w - new_w) // 2)
-            mask.paste(alpha_dilated, (core_x, pad_v_px))
+            # Pad BEFORE dilating so the MaxFilter has room to grow outward and
+            # the curl edges keep their full anti-aliased extent (no flat cut).
+            pad_canvas = Image.new('L', (new_w + 2 * safety_px,
+                                         band_h_px + 2 * safety_px), 0)
+            pad_canvas.paste(alpha_core, (safety_px, safety_px))
+            alpha_dilated = pad_canvas.filter(ImageFilter.MaxFilter(dil_size))
+            # Auto-compute the true ink bbox and crop tight + uniform safety margin.
+            ink = alpha_dilated.getbbox()
+            if ink is None:
+                return False
+            ix0 = max(0, ink[0] - safety_px); iy0 = max(0, ink[1] - safety_px)
+            ix1 = min(alpha_dilated.width,  ink[2] + safety_px)
+            iy1 = min(alpha_dilated.height, ink[3] + safety_px)
+            mask = alpha_dilated.crop((ix0, iy0, ix1, iy1))
+            canvas_w, canvas_h_px = mask.size
             rgba = Image.new('RGBA', (canvas_w, canvas_h_px), (0, 0, 0, 0))
             gray_fill = Image.new('RGBA', (canvas_w, canvas_h_px), (_GRAY_LEADER, _GRAY_LEADER, _GRAY_LEADER, 255))
             rgba.paste(gray_fill, (0, 0), mask)
             flat = Image.new('RGB', (canvas_w, canvas_h_px), (255, 255, 255))
             flat.paste(rgba, (0, 0), rgba)
-            cached = ImageReader(flat)
+            # Store the raster together with the safety-margin fraction so the
+            # draw step can keep the *ink* footprint (not the padded canvas)
+            # matched to the requested render_h / width.
+            cached = (ImageReader(flat), canvas_w, canvas_h_px,
+                      safety_px, band_h_px, new_w)
             _POST_ANAF_DIV_CACHE[cache_key] = cached
         except Exception:
             return False
 
-    pad_v_pt   = pad_v_px * 72.0 / ppi
-    total_h_pt = render_h + 2 * pad_v_pt
-    pad_h_pt   = pad_h_px * 72.0 / ppi
-    draw_y_bot = y_top - render_h - pad_v_pt
+    reader, canvas_w, canvas_h_px, safety_px, ink_h_px, ink_w_px = cached
+    # Scale the padded canvas up so that the INK (ink_w_px x ink_h_px) lands at
+    # exactly `width` x `render_h` on the page; the safety margin extends the
+    # drawn rect proportionally beyond that, but the visible ornament keeps its
+    # intended footprint.
+    px_to_pt_h = render_h / ink_h_px
+    draw_h_pt  = canvas_h_px * px_to_pt_h
+    px_to_pt_w = width / ink_w_px
+    draw_w_pt  = canvas_w * px_to_pt_w
+    margin_top_pt = safety_px * px_to_pt_h
+    draw_x = x_center - draw_w_pt / 2
+    draw_y_bot = y_top - render_h - margin_top_pt
     c.saveState()
-    c.drawImage(cached, x_center - width / 2 - pad_h_pt, draw_y_bot,
-                width=width + 2 * pad_h_pt, height=total_h_pt,
+    c.drawImage(reader, draw_x, draw_y_bot,
+                width=draw_w_pt, height=draw_h_pt,
                 mask=[254, 255, 254, 255, 254, 255])
     c.restoreState()
     return render_h

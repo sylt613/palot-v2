@@ -31,9 +31,9 @@ TITLE_PAGE      = False  # no title page
 FONTS_DIR       = os.path.join(BASE_DIR, "fonts")
 FIXED_FONTS_DIR = os.path.join(BASE_DIR, "fonts")
 
-# Body font — Carizma Regular
-BODY_FONT_PATH  = "/data/palot-v2code/fonts/1CarizmaRegular.ttf"
-BODY_FONT_NAME  = "carizma"
+# Body font — Mazal Regular (owner request; was Carizma Regular)
+BODY_FONT_PATH  = "/data/palot-v2code/fonts/mazalregular.ttf"
+BODY_FONT_NAME  = "mazal"
 
 # Heading font — EFT Frankfurt Bold / Regular (all headings + title + header)
 HEADING_FONT_PATH      = "/data/palot-v2code/fonts/EFT_FRANKFURT BOLD.TTF"
@@ -49,16 +49,16 @@ DROPCAP_FONT_NAME = "carizmabold"
 ORNAMENT_FONT_PATH = "/root/fonts_extracted/Fonts (2)/BergamotOrnaments-3oK6.ttf"
 ORNAMENT_FONT_NAME = "bergamot"
 
-# Bold body font — Carizma Bold
-BOLD_BODY_FONT_PATH = "/data/palot-v2code/fonts/1CarizmaBold.ttf"
-BOLD_BODY_FONT_NAME = "carizmabold"
+# Bold body font — Mazal Bold (owner request; was Carizma Bold)
+BOLD_BODY_FONT_PATH = "/data/palot-v2code/fonts/mazalbold.ttf"
+BOLD_BODY_FONT_NAME = "mazalbold"
 
 # Even-page header title font — EFT Frankfurt Bold
 EFT_TALPIYOT_FONT_PATH = "/data/palot-v2code/fonts/EFT_FRANKFURT BOLD.TTF"
 EFT_TALPIYOT_FONT_NAME = "pninamedium"
 
 # Footnote font — reuse body font
-FN_FONT_NAME    = "carizma"
+FN_FONT_NAME    = "mazal"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PAGE GEOMETRY (in inches, converted to points at 72 dpi)

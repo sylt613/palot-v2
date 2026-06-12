@@ -89,6 +89,22 @@ NUM_COLS        = 2  # number of columns for body text
 BODY_FONT_SIZE      = 12.2  # main body font size
 BODY_LINE_HEIGHT    = None                   # auto = size * LINE_HEIGHT_MULT
 LINE_HEIGHT_MULT    = 1.33  # line height multiplier
+
+# ── Justification: loose-line control (ported from kidushin) ──────────────────
+# Mazal's natural interword space is unusually narrow (~0.175em), so full
+# justification blows lines out into spacey gaps ("rivers"). At DRAW time we cap
+# the rendered interword gap at JUST_WORD_GAP_MAX_MULT x the (target) natural
+# space and absorb the residual as a hair of uniform LETTER-SPACING across the
+# line (Hebrew square script is non-connecting, so this is invisible — it is NOT
+# kashida). This kills spacey gaps WITHOUT changing line breaks or page count.
+JUST_WORD_GAP_MAX_MULT  = 1.5    # rendered gap target = 1.5x the natural space
+JUST_LETTER_SPACE_MAX_EM = 0.04  # residual letter-spacing cap, <= +4% of FS / slot (imperceptible)
+# Draw-time target word-space: cap + letter-spacing are computed against
+# max(font-natural-space, size x WORD_SPACE_TARGET_EM). Widening the reference a
+# touch (toward Bringhurst's ~0.24em optimum) makes the cap pack lines tighter at
+# the source. This affects ONLY the rendered fill, never the wrap/line-count, so
+# it cannot desync the measurer or shift pagination. 0 = use font space as-is.
+WORD_SPACE_TARGET_EM    = 0.235
 DROPCAP_SIZE        = 12.8  # first word stays visibly larger than body
 DROPCAP_BODY_GAP    = 3.0  # gap between dropcap word and body text
 
@@ -164,6 +180,12 @@ SECTION_END_ORNAMENT        = True
 SECTION_END_ORN_CHAR        = "N"            # Bergamot character
 SECTION_END_ORN_SIZE        = 14.0
 SECTION_END_ORN_COLOR       = (0.0, 0.0, 0.0)
+# Post-anaf divider (anaf_end_orn_raw.png) is a self-contained flourish, NOT a
+# tileable band. It MUST be drawn CONTAIN (fit-inside its width x height box,
+# preserving native w:h) — never fit-to-box (stretch). This factor shrinks the
+# contained ornament a bit (owner asked for "a bit smaller"); 0.85 = 15% smaller
+# than the full undistorted contained size.
+POST_ANAF_DIV_SCALE         = 0.85
 
 # Anaf label ornaments (2 flanking ornaments around ענף label)
 ANAF_LABEL_ORNAMENTS        = False

@@ -1230,23 +1230,32 @@ def draw_post_anaf_divider_band(c, x_center, y_top, width):
             return False
 
     reader, canvas_w, canvas_h_px, safety_px, ink_h_px, ink_w_px = cached
-    # Scale the padded canvas up so that the INK (ink_w_px x ink_h_px) lands at
-    # exactly `width` x `render_h` on the page; the safety margin extends the
-    # drawn rect proportionally beyond that, but the visible ornament keeps its
-    # intended footprint.
-    px_to_pt_h = render_h / ink_h_px
-    draw_h_pt  = canvas_h_px * px_to_pt_h
-    px_to_pt_w = width / ink_w_px
-    draw_w_pt  = canvas_w * px_to_pt_w
-    margin_top_pt = safety_px * px_to_pt_h
+    # CONTAIN, never stretch: anaf_end_orn_raw.png is a self-contained flourish.
+    # We fit the INK (ink_w_px x ink_h_px, native aspect) INSIDE the (width x
+    # render_h) box with a SINGLE scale factor (the binding dimension), so the
+    # native w:h is preserved — the old code used independent px_to_pt_w /
+    # px_to_pt_h, which stretched the curls horizontally.  Then shrink a bit per
+    # POST_ANAF_DIV_SCALE (owner asked for "a bit smaller", proportionally).
+    contain_scale = min(width / ink_w_px, render_h / ink_h_px)
+    contain_scale *= getattr(S, 'POST_ANAF_DIV_SCALE', 0.85)
+    # The cached raster is the padded canvas (ink + safety margin all around);
+    # scaling the whole canvas by the same factor keeps the safety margin
+    # proportional and the ink centred.
+    draw_w_pt = canvas_w * contain_scale
+    draw_h_pt = canvas_h_px * contain_scale
+    margin_top_pt = safety_px * contain_scale
     draw_x = x_center - draw_w_pt / 2
-    draw_y_bot = y_top - render_h - margin_top_pt
+    # Keep the ink bottom anchored just below y_top, as before (ink height on
+    # page = ink_h_px * contain_scale; the safety margin sits above/below it).
+    ink_h_pt = ink_h_px * contain_scale
+    draw_y_bot = y_top - ink_h_pt - margin_top_pt
     c.saveState()
     c.drawImage(reader, draw_x, draw_y_bot,
                 width=draw_w_pt, height=draw_h_pt,
                 mask=[254, 255, 254, 255, 254, 255])
     c.restoreState()
-    return render_h
+    # Return the actual drawn ink height so callers reserve the right space.
+    return ink_h_pt
 
 def draw_generated_footnote_separator(c, x_center, y_center, width):
     """Same footnote separator ornament, dilated and filled 66% gray."""
@@ -4749,6 +4758,85 @@ def draw_word_with_fn(c, word, font, size, x, y, fn_counter_base):
             cx -= mw
     return total_w
 
+# ── Justification cascade: no loose word gaps (ported from kidushin) ──────────
+# DRAW-TIME ONLY. A justified line whose interword gap would otherwise spread
+# into ugly rivers instead caps the gap at JUST_WORD_GAP_MAX_MULT x the target
+# space and absorbs the residual as a hair of uniform LETTER-SPACING (Hebrew
+# square script is non-connecting, so this distorts nothing — NOT kashida).
+# These helpers change only how an already-broken line is filled; they never
+# touch the wrap/line-count/measurement, so pagination is unaffected.
+def _just_target_space(font, size):
+    """Reference word-space for the cap: max(font-natural, size x target-em)."""
+    nat = Wid(' ', font, size)
+    em = float(getattr(S, 'WORD_SPACE_TARGET_EM', 0.0) or 0.0)
+    tgt = size * em
+    return tgt if tgt > nat else nat
+
+def _just_gap_and_charspace(tot, gaps, col_width, font, size, letter_gaps):
+    """Cascade for one justified line. Returns (gap_w, char_extra).
+    gap_w     : the rendered interword gap (capped).
+    char_extra: uniform per-letter-gap spacing (points) to absorb the residual.
+
+    The cap is JUST_WORD_GAP_MAX_MULT x the natural font space (Mazal ~0.175em).
+    WORD_SPACE_TARGET_EM raises the *target* the line packs toward (the gap floor),
+    so a line that justifies LOOSER than the cap is unchanged, but the absorbed
+    residual is measured against the wider target — tightening loose lines toward
+    a uniform, book-like interword rhythm rather than the font's cramped minimum."""
+    gw_nat = (col_width - tot) / gaps
+    sp_nat = Wid(' ', font, size)
+    cap = sp_nat * float(getattr(S, 'JUST_WORD_GAP_MAX_MULT', 1.5))
+    # Pull capped lines down to the (wider) book target, not all the way to cap,
+    # so capped lines read evenly instead of all sitting at the hard ceiling.
+    sp_target = _just_target_space(font, size)
+    gap_floor = min(cap, max(sp_nat, sp_target))
+    if gw_nat <= cap:
+        return gw_nat, 0.0
+    # Aim to bring the gap down to gap_floor; absorb the difference as letter-
+    # spacing (up to its cap), and let any leftover settle back into the gap.
+    residual = (gw_nat - gap_floor) * gaps
+    char_extra = 0.0
+    ls_max_em = float(getattr(S, 'JUST_LETTER_SPACE_MAX_EM', 0.02))
+    if letter_gaps > 0 and ls_max_em > 0:
+        ls_cap = letter_gaps * (size * ls_max_em)
+        use = min(residual, ls_cap)
+        char_extra = use / letter_gaps
+        residual -= use
+    # Anything letter-spacing couldn't absorb (rare, very few-word lines) goes
+    # back into the gap, reduced from its uncapped value. (Not clamped to cap:
+    # the line must still fill col_width exactly — conservation. Such residual
+    # lines are few and already much tighter than before.)
+    gap_w = gap_floor + (residual / gaps if residual > 0.01 else 0.0)
+    return gap_w, char_extra
+
+def _word_tracked_w(vis_text, font, size, char_extra):
+    """Drawn width of a display-ordered word with uniform letter-spacing.
+    We add char_extra at the (n-1) INTERNAL slots only — no trailing space — so
+    the word's footprint is exact and positions never drift (the per-glyph
+    drawing below uses the identical advance)."""
+    base = Wid(vis_text, font, size)
+    n = len(vis_text)
+    if char_extra <= 1e-6 or n <= 1:
+        return base
+    return base + char_extra * (n - 1)
+
+def _draw_word_tracked(c, x_left, y, vis_text, font, size, char_extra):
+    """Draw a (display-ordered) word with uniform letter-spacing char_extra (pt)
+    inserted at the (n-1) internal glyph boundaries. Each glyph is positioned
+    explicitly so the drawn advance EXACTLY matches _word_tracked_w (no reliance
+    on PDF setCharSpace trailing-advance quirks → no leftward drift / overlap)."""
+    vis_text = livorna_fix_quotes(vis_text)
+    n = len(vis_text)
+    if char_extra <= 1e-6 or n <= 1:
+        c.drawString(x_left, y, vis_text)
+        return
+    c.setFont(font, size)
+    x = x_left
+    for i, ch in enumerate(vis_text):
+        c.drawString(x, y, ch)
+        x += Wid(ch, font, size)
+        if i < n - 1:
+            x += char_extra
+
 def draw_line_with_fn(c, words, font, size, x_right, y, col_width, last, fn_counter_base):
     """Draw a justified line of words.  Each word may be a plain string or a
     (str, font, size) tagged tuple for mixed-font (Margoliot / paren-size) lines."""
@@ -4791,11 +4879,19 @@ def draw_line_with_fn(c, words, font, size, x_right, y, col_width, last, fn_coun
         elif gaps == 0:
             draw_string_raised(c, x_right - wws[0], y, vis(words[0]), font, size)
         else:
-            gap_w = (col_width - tot) / gaps
+            # Cap the interword gap and absorb the residual as uniform letter-
+            # spacing across the line (kills Mazal's spacey gaps; no line-break
+            # change). letter_gaps = total INTERNAL (n-1) glyph slots per word —
+            # must match _word_tracked_w (which spaces the n-1 internal slots).
+            vis_words = [livorna_fix_quotes(vis(w)) for w in words]
+            letter_gaps = sum(max(0, len(vw) - 1) for vw in vis_words)
+            gap_w, char_extra = _just_gap_and_charspace(
+                tot, gaps, col_width, font, size, letter_gaps)
             cx = x_right
-            for i, (w, ww) in enumerate(zip(words, wws)):
-                draw_string_raised(c, cx - ww, y, vis(w), font, size)
-                cx -= ww
+            for i, vw in enumerate(vis_words):
+                tw = _word_tracked_w(vw, font, size, char_extra)
+                _draw_word_tracked(c, cx - tw, y, vw, font, size, char_extra)
+                cx -= tw
                 if i < gaps: cx -= gap_w
         return
 
@@ -4809,11 +4905,30 @@ def draw_line_with_fn(c, words, font, size, x_right, y, col_width, last, fn_coun
     elif gaps == 0:
         _draw_one(words[0], wws[0], x_right)
     else:
-        gap_w = (col_width - tot) / gaps
+        # Same gap cap + letter-spacing residual as the fast path. Letter-
+        # spacing is applied only to PLAIN (untagged, no-fn) words drawn in the
+        # primary font; tagged/fn words keep their natural width, so their
+        # markers/sizes are never distorted. Residual the plain words can't
+        # absorb falls back into the (still reduced) word gap.
+        plain_letter_gaps = sum(
+            max(0, len(livorna_fix_quotes(vis(tw_str(w)))) - 1)
+            for w in words
+            if not tw_has_fn(w) and tw_font(w, font) == font and tw_size(w, size) == size)
+        gap_w, char_extra = _just_gap_and_charspace(
+            tot, gaps, col_width, font, size, plain_letter_gaps)
         cx = x_right
         for i, (w, ww) in enumerate(zip(words, wws)):
-            _draw_one(w, ww, cx)
-            cx -= ww
+            is_plain = (not tw_has_fn(w) and tw_font(w, font) == font
+                        and tw_size(w, size) == size)
+            if is_plain and char_extra > 1e-6:
+                vw = livorna_fix_quotes(vis(tw_str(w)))
+                tw = _word_tracked_w(vw, font, size, char_extra)
+                c.setFont(font, size); c.setFillColorRGB(0, 0, 0)
+                _draw_word_tracked(c, cx - tw, y, vw, font, size, char_extra)
+                cx -= tw
+            else:
+                _draw_one(w, ww, cx)
+                cx -= ww
             if i < gaps: cx -= gap_w
 
 

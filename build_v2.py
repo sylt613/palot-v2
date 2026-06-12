@@ -2411,8 +2411,8 @@ _ANAF_FLANKER_CACHE = {}  # keyed by (needed_w_px, canvas_h_px, side)
 def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
     """Flanker ornament: curl near anaf label, 1px tile extends outward, fades at far end."""
     # render_h sets the flanker's drawn height; the spiral curl scales with it.
-    # Reduced ~15% (16.0 -> 13.6) to make the anaf ornament a bit smaller.
-    render_h = 13.6
+    # Restored to original good value (16.0) — the 13.6 "smaller" tweak distorted the flankers.
+    render_h = 16.0
     ppi = 300
     width = x_right - x_left
     if width < 4:

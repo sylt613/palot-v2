@@ -98,7 +98,7 @@ LINE_HEIGHT_MULT    = 1.33  # line height multiplier
 # line (Hebrew square script is non-connecting, so this is invisible — it is NOT
 # kashida). This kills spacey gaps WITHOUT changing line breaks or page count.
 JUST_WORD_GAP_MAX_MULT  = 1.5    # rendered gap target = 1.5x the natural space
-JUST_LETTER_SPACE_MAX_EM = 0.04  # residual letter-spacing cap, <= +4% of FS / slot (imperceptible)
+JUST_LETTER_SPACE_MAX_EM = 0.013  # residual letter-spacing cap, <= +1.3% of FS / slot (barely perceptible, kidushin-like). Lowered from 0.04 (owner: letters read too loose). Residual the gap-cap can't absorb stays as a slightly wider word gap on a few lines — acceptable.
 # Draw-time target word-space: cap + letter-spacing are computed against
 # max(font-natural-space, size x WORD_SPACE_TARGET_EM). Widening the reference a
 # touch (toward Bringhurst's ~0.24em optimum) makes the cap pack lines tighter at

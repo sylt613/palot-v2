@@ -8596,49 +8596,112 @@ class PageLayout:
         is_section_end = (cur_el_idx < len(elements)
                           and elements[cur_el_idx]['kind'] == 'anaf'
                           and cur_ln_off == 0)
-        skip_stretch = is_last_page
+        # Section-end pages and the final page are deliberately short (each ענף
+        # begins on a fresh page).  The owner wants the blank bottom LEFT ALONE —
+        # only the two columns must be even.  So skip the page-stretch / page-fill
+        # passes (which grow content toward the bottom) on these pages; the
+        # dedicated equalize pass below makes their columns even, top-aligned.
+        skip_stretch = is_last_page or is_section_end
         display_pg = max(1, self.page_num - 4)
         _trace.set_phase('render_page.page_stretch')
         _trace.log('page_stretch_check',
                    f'is_last={is_last_page} is_section_end={is_section_end} skip={skip_stretch}',
                    is_last=is_last_page, is_section_end=is_section_end)
 
-        # ── Last-page column balance (sanctioned equal short tail) ──
-        # The blanket page-stretch/page-fill skip on the final page leaves its
-        # col_pair top-anchored, so a short final paragraph that splits unevenly
-        # (e.g. a single para → 3 lines / 2 lines) shows one column a full line
-        # taller than the other (owner: "last page is not balanced").  We cannot
-        # grow a 5-line tail to fill the page (that would be grossly spacey), and
-        # the para often cannot be reflowed to an even line count without spacey
-        # or overflowing lines.  Instead bottom-align the shorter column to the
-        # taller one's baseline: both columns then end on the same line and the
-        # closing ornament sits centred below — a sanctioned equal short tail,
-        # with NO extra leading and NO interword change.  Threshold is LH-relative.
-        if (is_last_page
-                and getattr(S, 'LAST_PAGE_BOTTOM_ALIGN', True)):
-            _lp_tol = LH * float(getattr(S, 'LAST_PAGE_BALANCE_TOL_FRAC', 0.25))
+        # ── Section-end / last-page column EQUALIZE (true balance) ──
+        # Each ענף starts on a new page (H1_NEW_PAGE), so the page that ends a
+        # section — and the document's final page — is naturally short.  The blank
+        # bottom is FINE and expected; we must NOT fill it.  The only defect the
+        # owner sees on these pages is that the TWO COLUMNS run to different
+        # heights (one column ends lower than the other).
+        #
+        # On a short page the normal _compute_padding levers (a handful of
+        # inter-paragraph gaps + an 8%-LH leading feather) sometimes can't fully
+        # equalize: e.g. a subhead-led column carries an extra SUB_AFTER_GAP that
+        # its sibling lacks, leaving a few unabsorbed points.  The previous fix
+        # then SHOVED the shorter column down so the bottoms aligned — a band-aid
+        # that opened an ugly gap at the TOP of the short column, and only ran on
+        # the final page.  The owner wants TRUE balance: both columns TOP-ALIGNED
+        # at equal heights.
+        #
+        # So, generally on every section-end page AND the final page, when the two
+        # columns hold equal line counts (or differ by one line yet the residual
+        # is only a small fraction of a line — e.g. a subhead-led column carrying
+        # an extra SUB_AFTER_GAP), close the remaining points with a UNIFORM
+        # leading feather on the SHORTER column, capped at an imperceptible
+        # per-line amount.  Columns stay top-anchored (e_top forced to 0); no
+        # interword change; no bottom fill.  When equalizing would require a
+        # per-line feather above that imperceptible cap (a genuinely odd split,
+        # e.g. 3 vs 2 on a 5-line tail where the gap is a whole line), we DON'T
+        # feather — stretching a 2-line column by a full line would be spacey;
+        # the columns simply stay top-aligned, which is already as even as the
+        # constraints allow.  All caps are LH-relative.
+        if is_section_end or is_last_page:
+            _eq_tol = LH * float(getattr(S, 'SECTION_END_BALANCE_TOL_FRAC', 0.15))
+            # Max per-line leading feather allowed to equalize the two columns.
+            # Owner directive: these short pages must balance on TOP and BOTTOM,
+            # and a uniform leading feather (ELH) is acceptable to get there — so
+            # the cap is generous enough to absorb up to roughly a full line of
+            # difference spread across a small column (e.g. a 3-vs-2 tail), while
+            # still bounded so it can never blow up.  Settings-relative.
+            _eq_cap = LH * float(getattr(S, 'SECTION_END_BALANCE_ELH_FRAC', 0.55))
+
+            def _cd_vlines(cd, paras):
+                tot = 0
+                for kind, pi, k in cd:
+                    p = paras[pi]
+                    fl = (p['lines'][:k] if kind == 'head'
+                          else p['lines'][k:] if kind == 'tail'
+                          else p['lines'])
+                    tot += sum(ld.get('nlines', 1) for ld in fl)
+                return tot
+
             for blk in plan:
                 if blk['kind'] != 'col_pair':
                     continue
-                _lp_h1, _lp_h2 = _col_raw_heights(
-                    blk['paras'], blk['c1d'], blk['c2d'],
-                    blk.get('e1', 0.0), blk.get('e2', 0.0),
-                    blk.get('elh1', 0.0), blk.get('elh2', 0.0))
-                _lp_t1 = _lp_h1 + blk.get('e_top1', 0.0)
-                _lp_t2 = _lp_h2 + blk.get('e_top2', 0.0)
-                _lp_diff = _lp_t1 - _lp_t2
-                if abs(_lp_diff) <= _lp_tol:
+                _pr = blk['paras']
+                _c1d, _c2d = blk['c1d'], blk['c2d']
+                # Always top-align: undo any inherited top-pad / prior shove.
+                blk['e_top1'] = 0.0
+                blk['e_top2'] = 0.0
+                if not _c1d or not _c2d:
+                    blk['height'] = max(_col_raw_heights(
+                        _pr, _c1d, _c2d, blk.get('e1', 0.0), blk.get('e2', 0.0),
+                        blk.get('elh1', 0.0), blk.get('elh2', 0.0)))
                     continue
-                # Push the SHORTER column down so the two columns bottom-align.
-                if _lp_diff > 0:        # col1 taller → drop col2
-                    blk['e_top2'] = blk.get('e_top2', 0.0) + _lp_diff
-                else:                   # col2 taller → drop col1
-                    blk['e_top1'] = blk.get('e_top1', 0.0) - _lp_diff
-                blk['height'] = max(_lp_t1, _lp_t2)
-                _trace.log('last_page_bottom_align',
-                           f'page={self.page_num} bottom-aligned columns '
-                           f'(h1={_lp_t1:.1f} h2={_lp_t2:.1f} '
-                           f'shifted shorter col by {abs(_lp_diff):.1f}pt)')
+                _e1, _e2 = blk.get('e1', 0.0), blk.get('e2', 0.0)
+                _elh1, _elh2 = blk.get('elh1', 0.0), blk.get('elh2', 0.0)
+                _h1, _h2 = _col_raw_heights(_pr, _c1d, _c2d, _e1, _e2, _elh1, _elh2)
+                _diff = _h1 - _h2
+                if abs(_diff) > _eq_tol:
+                    _n1 = _cd_vlines(_c1d, _pr)
+                    _n2 = _cd_vlines(_c2d, _pr)
+                    # Per-line feather needed on the shorter column to equalize.
+                    if _diff > 0:        # col1 taller → feather col2 (shorter)
+                        _per_line = _diff / max(1, _n2)
+                    else:                # col2 taller → feather col1 (shorter)
+                        _per_line = (-_diff) / max(1, _n1)
+                    # Apply ONLY when the feather stays imperceptible; otherwise
+                    # leave the columns top-aligned (no spacey stretch).
+                    if _per_line <= _eq_cap + 1e-6:
+                        if _diff > 0:
+                            _elh2 += _per_line
+                        else:
+                            _elh1 += _per_line
+                        blk['elh1'], blk['elh2'] = _elh1, _elh2
+                        _h1, _h2 = _col_raw_heights(_pr, _c1d, _c2d,
+                                                    _e1, _e2, _elh1, _elh2)
+                        _trace.log('section_end_equalize',
+                                   f'page={self.page_num} equalized columns '
+                                   f'(n1={_n1} n2={_n2} h1={_h1:.1f} h2={_h2:.1f} '
+                                   f'per_line={_per_line:.2f} '
+                                   f'elh1={_elh1:.2f} elh2={_elh2:.2f})')
+                    else:
+                        _trace.log('section_end_equalize',
+                                   f'page={self.page_num} top-aligned only '
+                                   f'(n1={_n1} n2={_n2} h1={_h1:.1f} h2={_h2:.1f} '
+                                   f'per_line={_per_line:.2f} > cap {_eq_cap:.2f})')
+                blk['height'] = max(_h1, _h2)
 
         simulated_y = text_top
         for blk in plan:

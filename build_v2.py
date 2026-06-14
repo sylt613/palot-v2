@@ -2407,11 +2407,20 @@ def _draw_simple_printers_mark(c, x_center, y_center, size, gray=0.42):
     c.restoreState()
 
 _ANAF_FLANKER_CACHE = {}  # keyed by (needed_w_px, canvas_h_px, side)
+_PNG_ANAF_FLANKER_CURL = os.path.join(_ORNAMENT_DIR, 'anaf_flanker_curl.png')
 
 def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
-    """Flanker ornament: curl near anaf label, 1px tile extends outward, fades at far end."""
+    """Flanker ornament built from the owner's bottom-divider end curl.
+
+    Layout (curl on the OUTER end, line running toward the label):
+      [curl] + [solid thin rule, length ~= 2x the curl's drawn width]
+             + [the rule continuing but FADING OUT to transparent].
+
+    The 2x solid length is RELATIVE to the curl's drawn width (not a hard pt).
+    The rule thickness + gray match the curl. Built as a single RGBA canvas
+    with a left->right alpha ramp (via _fade_rgba_alpha) and drawn with drawImage.
+    """
     # render_h sets the flanker's drawn height; the spiral curl scales with it.
-    # Restored to original good value (16.0) — the 13.6 "smaller" tweak distorted the flankers.
     render_h = 16.0
     ppi = 300
     width = x_right - x_left
@@ -2422,73 +2431,79 @@ def _draw_anaf_flanker(c, x_left, x_right, y_center, side='right'):
     cache_key = (needed_w_px, canvas_h_px, side)
     reader = _ANAF_FLANKER_CACHE.get(cache_key)
     if reader is None:
-        if not os.path.exists(_PNG_SUBHEAD_RULE_RIGHT):
+        if not os.path.exists(_PNG_ANAF_FLANKER_CURL):
             return
         try:
-            img = Image.open(_PNG_SUBHEAD_RULE_RIGHT).convert('RGB')
-            # White background → alpha (vectorized)
             import numpy as np
-            arr = np.array(img, dtype=np.uint16)
-            alpha = np.clip(255 - arr.mean(axis=2).astype(np.uint8), 0, 255).astype(np.uint8)
-            rgba_arr = np.dstack([arr[:,:,0], arr[:,:,1], arr[:,:,2], alpha]).astype(np.uint8)
-            rgba = Image.fromarray(rgba_arr, 'RGBA')
-            bbox = rgba.getbbox()
+            from PIL import ImageDraw
+            curl = Image.open(_PNG_ANAF_FLANKER_CURL).convert('RGBA')
+            bbox = curl.getbbox()
             if bbox:
-                rgba = rgba.crop(bbox)
+                curl = curl.crop(bbox)
 
-            # Scale locked to canvas height
-            scale = canvas_h_px / rgba.height
-            curl_w_px = max(1, round(rgba.width * scale))
-            img_sc = rgba.resize((curl_w_px, canvas_h_px), Image.LANCZOS)
+            # Scale curl height to the canvas (aspect ratio LOCKED — never stretch)
+            scale = canvas_h_px / curl.height
+            curl_w_px = max(1, round(curl.width * scale))
+            curl_sc = curl.resize((curl_w_px, canvas_h_px), Image.LANCZOS)
 
-            # Source curl is on the RIGHT. Straight end is on the LEFT.
-            # side='right': curl must be at LEFT of canvas (near label) → flip
-            # side='left' : curl must be at RIGHT of canvas (near label) → no flip
-            if side == 'right':
-                img_sc = img_sc.transpose(Image.FLIP_LEFT_RIGHT)
-                # Now curl on LEFT, straight on RIGHT
-                # 1px tile from the straight (right) end
-                tile_col = img_sc.crop((curl_w_px - 1, 0, curl_w_px, canvas_h_px))
-                canvas = Image.new('RGBA', (needed_w_px, canvas_h_px), (255, 255, 255, 0))
-                canvas.alpha_composite(img_sc, (0, 0))
-                for bx in range(curl_w_px, needed_w_px):
-                    canvas.alpha_composite(tile_col, (bx, 0))
-                tail_w = max(8, needed_w_px - curl_w_px)
-                canvas = _fade_rgba_alpha(canvas, fade_side='right', fade_zone_px=tail_w)
+            # ── Rule geometry ──────────────────────────────────────────────
+            # Thickness/gray matched to the curl's thin line. The bottom
+            # divider's line is ~7px tall in a 124px-tall curl ≈ 0.057 of the
+            # height; clamp to a sensible minimum so it stays visible.
+            rule_th = max(2, int(round(canvas_h_px * 0.057)))
+            rule_y0 = (canvas_h_px - rule_th) // 2
+            # SOLID length = 2x the curl's drawn width (relative, not hardcoded).
+            solid_len = int(round(2.0 * curl_w_px))
+
+            # Pull the curl's ink color (the solid gray it was knocked out to).
+            carr = np.array(curl_sc)
+            mask = carr[:, :, 3] > 40
+            if mask.any():
+                gv = int(round(carr[:, :, 0][mask].mean()))
             else:
-                # side='left': curl on RIGHT end of canvas (near label), tile extends LEFT
-                # 1px tile from the straight (left) end
-                tile_col = img_sc.crop((0, 0, 1, canvas_h_px))
-                canvas = Image.new('RGBA', (needed_w_px, canvas_h_px), (255, 255, 255, 0))
-                curl_x = needed_w_px - curl_w_px
-                canvas.alpha_composite(img_sc, (max(0, curl_x), 0))
-                for bx in range(0, max(0, curl_x)):
-                    canvas.alpha_composite(tile_col, (bx, 0))
-                tail_w = max(8, curl_x)
-                canvas = _fade_rgba_alpha(canvas, fade_side='left', fade_zone_px=tail_w)
+                gv = _GRAY_DARK
 
-            # Apply dark gray color (_GRAY_DARK) with 80% alpha
-            r, g, b, a = canvas.split()
-            a = a.point(lambda v: int(v * 0.80))
-            canvas = Image.merge('RGBA', (r, g, b, a))
+            canvas = Image.new('RGBA', (needed_w_px, canvas_h_px), (255, 255, 255, 0))
+            rule_run = max(0, needed_w_px - curl_w_px)  # rule spans from curl to label
 
+            # Build the rule as its own RGBA strip so we can fade it cleanly.
+            if rule_run > 0:
+                rule = Image.new('RGBA', (rule_run, canvas_h_px), (255, 255, 255, 0))
+                rd = ImageDraw.Draw(rule)
+                rd.rectangle([0, rule_y0, rule_run - 1, rule_y0 + rule_th - 1],
+                             fill=(gv, gv, gv, 255))
+                # Fade zone = everything past the solid portion → transparent
+                # toward the label. fade_zone covers the non-solid remainder.
+                fade_zone = max(1, rule_run - solid_len)
+            else:
+                rule = None
+
+            if side == 'right':
+                # Flanker on the RIGHT side of the label: curl on OUTER (right)
+                # end of the canvas, rule runs LEFT toward the label, fading left.
+                if rule is not None:
+                    rule = _fade_rgba_alpha(rule, fade_side='left', fade_zone_px=fade_zone)
+                    canvas.alpha_composite(rule, (0, 0))
+                canvas.alpha_composite(curl_sc, (needed_w_px - curl_w_px, 0))
+            else:
+                # Flanker on the LEFT side of the label: curl on OUTER (left)
+                # end, rule runs RIGHT toward the label, fading right.
+                curl_m = curl_sc.transpose(Image.FLIP_LEFT_RIGHT)
+                canvas.alpha_composite(curl_m, (0, 0))
+                if rule is not None:
+                    rule = _fade_rgba_alpha(rule, fade_side='right', fade_zone_px=fade_zone)
+                    canvas.alpha_composite(rule, (curl_w_px, 0))
+
+            # Flatten to RGB on white, normalizing ink to a uniform gray.
             flat = Image.new('RGB', canvas.size, (255, 255, 255))
             flat.paste(canvas, mask=canvas.split()[3])
-            
-            # Color shift to _GRAY_DARK (85)
-            pixels = flat.load()
-            for y in range(flat.height):
-                for x in range(flat.width):
-                    r, g, b = pixels[x, y]
-                    if (r, g, b) != (255, 255, 255):  # Not white background
-                        pixels[x, y] = (_GRAY_DARK, _GRAY_DARK, _GRAY_DARK)
             reader = ImageReader(flat)
             _ANAF_FLANKER_CACHE[cache_key] = reader
         except Exception:
             return
     c.saveState()
     c.drawImage(reader, x_left, y_center - render_h / 2,
-                width=width, height=render_h)
+                width=width, height=render_h, mask=[254, 255, 254, 255, 254, 255])
     c.restoreState()
 
 def _load_odg_ornaments():

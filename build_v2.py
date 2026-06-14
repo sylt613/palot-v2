@@ -4947,6 +4947,38 @@ def _just_gap_and_charspace(tot, gaps, col_width, font, size, letter_gaps, use_f
             if f > 1.0 + 1e-6:
                 fx = f
                 gap_w = (col_width - tot * f - ls_total) / gaps
+
+    # ── Interword FLOOR (anti-cram) — the mirror of the expand lever above ──
+    # An over-full line (e.g. a balance reflow that shrank a paragraph to fewer
+    # lines) can drive the natural gap below a readable minimum — words touch or
+    # even overlap.  Readable interword is SACRED: the gap is never allowed to
+    # fall below the floor, on any draw path.
+    #   • When FX is in play (plain lines), CONDENSE the glyphs (fx < 1.0,
+    #     bounded) just enough to lift the gap to the floor — conservation, so
+    #     wrap / line-count / height are unchanged (invisible to paginator and
+    #     balancer).
+    #   • When FX is unavailable (mixed-font / footnote lines, use_fx=False — we
+    #     must not glyph-stretch tagged fonts or fn markers), we cannot condense,
+    #     so HARD-CLAMP the gap up to the floor.  This lets the line overset by a
+    #     hair past col_width rather than overlapping words — readable text beats
+    #     a perfectly-flush right edge.
+    if sp_nat > 0 and tot > 0 and gaps > 0:
+        gap_min = sp_nat * float(getattr(S, 'JUST_WORD_GAP_MIN_MULT', 0.55))
+        if gap_w < gap_min - 1e-6:
+            ls_total = char_extra * letter_gaps
+            if use_fx and getattr(S, 'FX_ENABLE', True) and abs(fx - 1.0) <= 1e-6:
+                cmax = float(getattr(S, 'FX_MAX_CONDENSE', 0.05))
+                # condense glyphs so the gap rises to gap_min: solve for f from
+                #   col_width = tot*f + gaps*gap_min + ls_total
+                f = (col_width - gaps * gap_min - ls_total) / tot
+                f = min(1.0, max(1.0 - cmax, f))
+                if f < 1.0 - 1e-6:
+                    fx = f
+                    gap_w = (col_width - tot * f - ls_total) / gaps
+            # Whatever the lever could not reach (and the no-FX path), clamp the
+            # gap to the floor so words can never touch.
+            if gap_w < gap_min:
+                gap_w = gap_min
     return gap_w, char_extra, fx
 
 def _word_tracked_w(vis_text, font, size, char_extra, fx=1.0):
@@ -7816,6 +7848,161 @@ class PageLayout:
                        f'cur_el_idx->{cur_el_idx}')
             return True
 
+        def _last_page_pullback():
+            """Final-page pull-back (end of book).  When this (donor) page is full
+            but the content REMAINING after it forms the book's FINAL page — and that
+            final page would render as a near-empty stub (a few lines + the closing
+            ornament, the owner's "tetvav unacceptable") — pull the MINIMUM trailing
+            paragraph group(s) from THIS page back to the final page so it stops being
+            a tiny stub.  Unlike _section_tail_pull this fires when the remaining run
+            reaches END OF BOOK with NO trailing anaf (the section-tail pull declines
+            that case).
+
+            Owner directive (2026-06-14): MAIN pages stay FULL — pull the MINIMUM.
+            The last page of a section need NOT be full; it only must clear the stub
+            threshold.  So we keep a HIGH donor floor (LAST_PAGE_DONOR_MIN_FRAC) and a
+            MODEST final-page target (LAST_PAGE_MIN_FILL_FRAC), and accept the fewest
+            groups that lift the final page above the stub line while the previous
+            page stays at/above its floor.  Thresholds are fractions of the available
+            body height (settings-relative).  Call BEFORE flush_acc().  Returns True
+            iff a redistribution was committed (cursors moved back)."""
+            nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+            if not getattr(S, 'LAST_PAGE_PULL_ENABLE', True):
+                return False
+            if cur_el_idx >= len(elements) or not acc_paras or not acc_origins:
+                return False
+            if len(acc_paras) != len(acc_origins):
+                return False
+            # The remaining run must reach END OF BOOK as plain paragraphs (no anaf /
+            # title page in between) — i.e. this is the penultimate page feeding the
+            # final page.  A trailing anaf is the section-tail pull's job, not ours.
+            _ei = cur_el_idx
+            _tail_paras = []
+            while _ei < len(elements):
+                _e = elements[_ei]
+                if _e['kind'] != 'para':
+                    return False
+                _ml = _e['lines'][cur_ln_off:] if _ei == cur_el_idx else _e['lines']
+                _vnl = sum(ld.get('nlines', 1) for ld in _ml)
+                _tp = {'lines': _ml, 'nlines': _vnl, 'is_para_end': True,
+                       'orig_el_idx': _ei,
+                       'source_idxs': list(_e.get('source_idxs', [_ei]))}
+                if _e.get('is_subhead'): _tp['is_subhead'] = True
+                _tail_paras.append(_tp)
+                _ei += 1
+            if not _tail_paras:
+                return False
+            _avail = body_avail(len(fn_lds_on_page))
+            _orn_res = _SECTION_ORN_RESERVE  # end of book → closing ornament drawn
+            _min_fill = float(getattr(S, 'LAST_PAGE_MIN_FILL_FRAC', 0.18))
+            _donor_min = float(getattr(S, 'LAST_PAGE_DONOR_MIN_FRAC', 0.55))
+            _max_groups = int(getattr(S, 'LAST_PAGE_PULL_MAX_GROUPS', 4))
+
+            def _run_height(prun):
+                if not prun:
+                    return 0.0
+                _c1, _c2, _e1, _e2, _l1, _l2 = _col_layout(prun)
+                _h1, _h2 = _col_raw_heights(prun, _c1, _c2, _e1, _e2, _l1, _l2)
+                _t1, _t2 = _compute_top_pads(_h1, _h2, _c1, _c2, prun)
+                return _col_height(prun, _c1, _c2, _e1, _e2, _l1, _l2,
+                                   e_top1=_t1, e_top2=_t2)
+
+            _tail_h = _run_height(_tail_paras)
+            if _tail_h + _orn_res >= _min_fill * _avail:
+                return False   # final page already clears the stub — leave it
+
+            # Snapshot for restore / replay.
+            _snap = (list(acc_paras), list(acc_origins), list(acc_fn_lds),
+                     cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor)
+
+            def _restore():
+                nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+                acc_paras[:] = _snap[0]; acc_origins[:] = _snap[1]
+                acc_fn_lds[:] = _snap[2]
+                cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor = \
+                    _snap[3], _snap[4], _snap[5], _snap[6]
+
+            def _pop_group():
+                nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+                _pulled = []
+                def _pop_one():
+                    nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+                    _p = acc_paras.pop()
+                    _o = acc_origins.pop()
+                    cur_el_idx = _o['el_idx']; cur_ln_off = _o['ln_off']
+                    cur_fn_off = _o['fn_off']; fn_cursor = _o['fn_cursor']
+                    if _o['fn_lds_added'] > 0:
+                        del acc_fn_lds[-_o['fn_lds_added']:]
+                    _pulled.append(_p)
+                while acc_paras and acc_origins and acc_paras[-1].get('is_subhead'):
+                    _pop_one()
+                if not (acc_paras and acc_origins):
+                    return _pulled
+                _pop_one()  # one body paragraph
+                while acc_paras and acc_origins and acc_paras[-1].get('is_subhead'):
+                    _pop_one()
+                return _pulled
+
+            # Minimal-pull search.  Pop trailing groups one at a time; accept a pull
+            # ONLY while the donor (main) page stays at/above its floor.  Stop at the
+            # FEWEST groups that lift the final page above the stub threshold.  If a
+            # group would breach the donor floor, REJECT it (keep the main page full)
+            # and stop — we never empty the main page just to fill the last one.
+            _accepted_groups = 0
+            _moved = []
+            _committed = False
+            while acc_paras and _accepted_groups < _max_groups:
+                _grp = _pop_group()
+                if not _grp:
+                    break
+                # Footnote-bearing pulled paragraph: the rebuilt final-page run would
+                # not re-emit its footnote line-dicts — stop (keep prior accepted).
+                if any(_count_fns_in_lines(p.get('lines', [])) > 0 for p in _grp):
+                    break
+                _donor_h = _run_height(list(acc_paras)) if acc_paras else 0.0
+                _donor_frac = _donor_h / _avail if _avail else 0.0
+                _cand_moved = _grp + _moved
+                _new_tail = [dict(p, is_para_end=p.get('is_para_end', True))
+                             for p in reversed(_cand_moved)] + _tail_paras
+                _tail_frac = (_run_height(_new_tail) + _orn_res) / _avail if _avail else 0.0
+                _trace.log('last_page_pull_try',
+                           f'page={self.page_num} groups={_accepted_groups + 1} '
+                           f'donor_frac={_donor_frac:.2f} tail_frac={_tail_frac:.2f} '
+                           f'(donor_min={_donor_min:.2f} min_fill={_min_fill:.2f})')
+                if not acc_paras or _donor_frac < _donor_min:
+                    # This group over-empties the MAIN page — reject it and stop.
+                    break
+                _accepted_groups += 1
+                _moved = _cand_moved
+                if _tail_frac >= _min_fill:
+                    _committed = True   # final page clears the stub; minimal pull
+                    break
+
+            # Re-derive the committed state cleanly from the snapshot (the loop above
+            # may have popped one rejected group past _accepted_groups).
+            _restore()
+            if _accepted_groups > 0 and (_committed or _moved):
+                for _i in range(_accepted_groups):
+                    _pop_group()
+                _donor_h = _run_height(list(acc_paras)) if acc_paras else 0.0
+                _donor_frac = _donor_h / _avail if _avail else 0.0
+                _new_tail = [dict(p, is_para_end=p.get('is_para_end', True))
+                             for p in reversed(_moved)] + _tail_paras
+                _tail_frac = (_run_height(_new_tail) + _orn_res) / _avail if _avail else 0.0
+                if (acc_paras and _donor_frac >= _donor_min
+                        and _tail_frac > (_tail_h + _orn_res) / _avail + 0.001):
+                    _trace.log('last_page_pull_applied',
+                               f'page={self.page_num} pulled {len(_moved)} para(s) '
+                               f'({_accepted_groups} group(s)) back to the final page; '
+                               f'donor_frac={_donor_frac:.2f} tail_frac={_tail_frac:.2f}; '
+                               f'cur_el_idx->{cur_el_idx}')
+                    return True
+                _restore()
+            _trace.log('last_page_pull_none',
+                       f'page={self.page_num} no acceptable redistribution '
+                       f'(tail_h={_tail_h:.1f} avail={_avail:.1f})')
+            return False
+
         page_empty = True
         cur_el_idx, cur_ln_off, cur_fn_off = el_idx, line_off, fn_off
 
@@ -8392,7 +8579,8 @@ class PageLayout:
                                f'best_n=0, flushing acc ({len(acc_paras)} paras) and breaking',
                                acc_n=len(acc_paras))
                     _pullback_trailing_subheads()
-                    _section_tail_pull()
+                    if not _section_tail_pull():
+                        _last_page_pullback()
                     flush_acc()
                     page_empty = False
                     break
@@ -8446,8 +8634,11 @@ class PageLayout:
         # ── Section-tail redistribution (anaf_break path) ──
         # The page_full break already ran _section_tail_pull() before its flush;
         # the anaf_break path breaks with acc_paras still populated, so run it
-        # here too (no-op when acc is already empty / not a section tail).
-        _section_tail_pull()
+        # here too (no-op when acc is already empty / not a section tail).  When it
+        # declines, try the end-of-book final-page pull-back (no-op unless the
+        # remaining run reaches end of book with content still in acc_paras).
+        if not _section_tail_pull():
+            _last_page_pullback()
 
         # ── Last-resort balance bleed ──
         is_final_flush = (cur_el_idx >= len(elements))

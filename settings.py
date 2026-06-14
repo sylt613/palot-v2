@@ -145,6 +145,20 @@ FX_MAX_EXPAND        = 0.04    # max horizontal glyph stretch (fraction; 0.04 = 
 FX_TARGET_EXCESS     = 0.50    # gap excess (× natural space) we expand down toward
 FX_STUBBORN_TRIGGER  = 1.0     # a line still this loose sits at the packing limit —
 FX_MAX_EXPAND_STUBBORN = 0.07  # allow stronger glyph expansion for THAT line only
+
+# ── Interword FLOOR (draw-time anti-cram) ──
+# The mirror of the FX expand lever, applied to OVER-FULL lines.  When a line is
+# packed so tight that its natural interword gap falls below a readable floor
+# (words touching / overlapping — e.g. a balance reflow shrank a paragraph to
+# fewer lines), CONDENSE the glyphs horizontally (FX < 1.0, bounded) just enough
+# to lift the gap back to the floor.  Conservation: the line still fills col_width
+# exactly, so wrap / line-count / height are untouched (invisible to the
+# paginator / balancer).  Readable interword is sacred — a sane positive floor is
+# enforced; words can never touch.  JUST_WORD_GAP_MIN_MULT is the floor as a
+# fraction of the natural font space; FX_MAX_CONDENSE bounds how far glyphs may be
+# squeezed (±3.5% is below the visible threshold for this Hebrew face).
+JUST_WORD_GAP_MIN_MULT = 0.90  # gap floor = 0.90x the natural font space (readable)
+FX_MAX_CONDENSE        = 0.06  # max horizontal glyph CONDENSE (fraction; 0.06 = -6%)
 DROPCAP_SIZE        = 12.8  # first word stays visibly larger than body
 DROPCAP_BODY_GAP    = 3.0  # gap between dropcap word and body text
 
@@ -278,6 +292,22 @@ SECTION_TAIL_SHORT_FRAC    = 0.40  # tail page is "too short" if filled < this f
 # donor still ends near-full afterwards.
 SECTION_TAIL_DONOR_MIN_FRAC= 0.82  # never pull so much the donor drops below this fill fraction
 SECTION_TAIL_PULL_MAX_GROUPS = 4   # cap how many paragraph groups may move back
+
+# ── Final-page pull-back (end of book) ──────────────────────────────────────
+# The very last page of the book ends a section but has NO following anaf, so the
+# section-tail pull above (which keys on a trailing anaf) never fires for it.  When
+# the book's final content forms a near-empty stub page (a few lines + the closing
+# ornament — the owner's "tetvav unacceptable"), pull trailing paragraph group(s)
+# back from the PREVIOUS page so the final page stops being a tiny stub.
+# Owner directive (2026-06-14): MAIN pages must stay FULL; pull the MINIMUM off the
+# previous page.  The last page of a section need NOT be full — it only has to stop
+# being an unacceptable tiny stub.  So target a MODEST final-page fill and keep the
+# donor floor HIGH (the previous page stays essentially full); the pull is the
+# fewest paragraph groups that lifts the final page above the stub threshold.
+LAST_PAGE_PULL_ENABLE      = True
+LAST_PAGE_MIN_FILL_FRAC    = 0.18  # final page is a "stub" if filled < this fraction of avail
+LAST_PAGE_DONOR_MIN_FRAC   = 0.55  # keep the previous (main) page at/above this fill fraction
+LAST_PAGE_PULL_MAX_GROUPS  = 4     # cap how many paragraph groups may move back
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LAST-PAGE BALANCE

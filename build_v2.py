@@ -6662,6 +6662,126 @@ def _col_raw_heights(para_run, c1d, c2d, e1, e2, elh1=0.0, elh2=0.0):
     return h1, h2
 
 
+def _fill_colpair_height(blk, want, max_gap_e, max_elh, allow_subhead_top_pad=False):
+    """Vertical-justify an already-balanced col_pair to recover page fill, so a
+    short page grows toward the bottom (columns bottom-align).  Adapted from the
+    kidushin reference (_fill_colpair_height).  Palot KEEPS ELH enabled — it may
+    spend a bounded uniform leading feather as part of the fill.
+
+    Two BOUNDED levers, in order, never touching interword space:
+      Stage 1 — inter-paragraph glue: grow BOTH columns to the same target
+        height (balance preserved), capped at `max_gap_e` per stretchable gap.
+      Stage 2 — uniform leading feather: if still short and gaps are exhausted,
+        add the SAME small leading feather (<= `max_elh`) to BOTH columns, then
+        re-close residual with a hair more bounded glue.
+    Each stage commits only if it grows the block while keeping |h1-h2| <= 0.5,
+    so the hard-won balance is never sacrificed for fill.  Leftover slack stays
+    as bottom whitespace.  Mutates blk in place; returns pts grown."""
+    pr, c1d, c2d = blk['paras'], blk['c1d'], blk['c2d']
+    if want <= 0.1:
+        return 0.0
+    g1 = _stretchable_gaps(c1d, pr)
+    g2 = _stretchable_gaps(c2d, pr)
+    e1, e2 = blk.get('e1', 0.0), blk.get('e2', 0.0)
+    elh1, elh2 = blk.get('elh1', 0.0), blk.get('elh2', 0.0)
+    h0 = max(_col_raw_heights(pr, c1d, c2d, e1, e2, elh1, elh2))
+    base_h = blk.get('height', h0)
+
+    def _h(which, e, el):
+        if which == 1:
+            return _col_raw_heights(pr, c1d, c2d, e, e2, el, elh2)[0]
+        return _col_raw_heights(pr, c1d, c2d, e1, e, elh1, el)[1]
+
+    def _solve_glue(which, e_start, cap, target, el):
+        lo, hi = e_start, e_start + cap
+        if _h(which, hi, el) < target:   # cap can't reach target
+            return hi
+        for _ in range(40):
+            mid = (lo + hi) / 2.0
+            if _h(which, mid, el) < target:
+                lo = mid
+            else:
+                hi = mid
+        return hi
+
+    # ── Stage 1: balanced inter-paragraph glue ──
+    if g1 > 0 and g2 > 0:
+        cap1 = max(0.0, max_gap_e - e1) * g1
+        cap2 = max(0.0, max_gap_e - e2) * g2
+        target = min(h0 + want, _h(1, e1 + cap1, elh1), _h(2, e2 + cap2, elh2))
+        if target > h0 + 0.1:
+            ne1 = _solve_glue(1, e1, cap1, target, elh1)
+            ne2 = _solve_glue(2, e2, cap2, target, elh2)
+            nh1, nh2 = _col_raw_heights(pr, c1d, c2d, ne1, ne2, elh1, elh2)
+            if abs(nh1 - nh2) <= 0.5:
+                e1, e2 = ne1, ne2
+
+    # ── Stage 2: uniform leading feather (+ a hair of rebalancing glue) ──
+    cur_h = max(_col_raw_heights(pr, c1d, c2d, e1, e2, elh1, elh2))
+    _el_hi = elh1 + max_elh
+    if max_elh > 0.05 and (h0 + want) - cur_h > 1.0 and _el_hi > elh1 + 0.01:
+        def _cand_for(el_try):
+            """Uniform feather el_try on BOTH columns + rebalancing glue on the
+            shorter one; returns (cand, |h1-h2|, grown_height)."""
+            f1, f2 = _col_raw_heights(pr, c1d, c2d, e1, e2, el_try, el_try)
+            t = min(max(f1, f2), h0 + want)
+            if f1 >= f2:
+                c = max(0.0, max_gap_e - e2) * g2 if g2 > 0 else 0.0
+                cd = (e1, _solve_glue(2, e2, c, t, el_try), el_try, el_try)
+            else:
+                c = max(0.0, max_gap_e - e1) * g1 if g1 > 0 else 0.0
+                cd = (_solve_glue(1, e1, c, t, el_try), e2, el_try, el_try)
+            h1c, h2c = _col_raw_heights(pr, c1d, c2d, *cd)
+            return cd, abs(h1c - h2c), max(h1c, h2c)
+        # 1) cap the feather where the taller column reaches the want
+        el = _el_hi
+        if max(_col_raw_heights(pr, c1d, c2d, e1, e2, el, el)) > h0 + want:
+            lo, hi = elh1, _el_hi
+            for _ in range(40):
+                mid = (lo + hi) / 2.0
+                if max(_col_raw_heights(pr, c1d, c2d, e1, e2,
+                                        mid, mid)) < h0 + want:
+                    lo = mid
+                else:
+                    hi = mid
+            el = hi
+        cand, _cdiff, _ = _cand_for(el)
+        # 2) if the rebalancing glue can't keep up with the feather, back the
+        #    feather off to the LARGEST level that still balances within tol
+        if _cdiff > 0.5:
+            lo, hi = elh1, el
+            _best_bal = None
+            for _ in range(20):
+                mid = (lo + hi) / 2.0
+                cd, dmid, gh = _cand_for(mid)
+                if dmid <= 0.5:
+                    if _best_bal is None or gh > _best_bal[1]:
+                        _best_bal = (cd, gh)
+                    lo = mid
+                else:
+                    hi = mid
+            if _best_bal is not None:
+                cand = _best_bal[0]
+        ch1, ch2 = _col_raw_heights(pr, c1d, c2d, *cand)
+        if abs(ch1 - ch2) <= 0.5 and max(ch1, ch2) > cur_h + 0.1:
+            e1, e2, elh1, elh2 = cand
+
+    nh1, nh2 = _col_raw_heights(pr, c1d, c2d, e1, e2, elh1, elh2)
+    if abs(nh1 - nh2) > 0.5:
+        return 0.0   # safety: never break balance to fill
+    t1, t2 = _compute_top_pads(nh1, nh2, c1d, c2d, pr,
+                               allow_subhead_top_pad=allow_subhead_top_pad)
+    new_h = _col_height(pr, c1d, c2d, e1, e2, elh1, elh2, e_top1=t1, e_top2=t2)
+    grown = new_h - base_h
+    if grown <= 0.1:
+        return 0.0
+    blk['e1'], blk['e2'] = e1, e2
+    blk['elh1'], blk['elh2'] = elh1, elh2
+    blk['e_top1'], blk['e_top2'] = t1, t2
+    blk['height'] = new_h
+    return grown
+
+
 def _draw_col_pair(c, para_run, c1d, c2d, e1, e2, y_top, fn_counter_before,
                    elh1=0.0, elh2=0.0, e_top1=0.0, e_top2=0.0, page_num=0,
                    log_sink=None):
@@ -7406,6 +7526,140 @@ class PageLayout:
                 pulled = True
             return pulled
 
+        def _section_tail_pull():
+            """Section-tail redistribution pullback.  When this (donor) page is
+            full but the next page is a SHORT section tail ending just before an
+            anaf heading, that tail page renders catastrophically short (the
+            owner's "horrible" half-empty page — a lone subhead + a few lines +
+            the closing ornament).  Pull trailing paragraph group(s) from this
+            page back to the tail so BOTH pages end reasonably full.  Triggered
+            only for a true section tail; thresholds are fractions of the
+            available body height (settings-relative).  Call BEFORE flush_acc().
+            Returns True iff a redistribution was committed (cursors moved back)."""
+            nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+            if not getattr(S, 'SECTION_TAIL_PULL_ENABLE', True):
+                return False
+            if cur_el_idx >= len(elements) or not acc_paras or not acc_origins:
+                return False
+            if len(acc_paras) != len(acc_origins):
+                return False
+            # Next content must be a section tail: one or more paras then an anaf.
+            _ei = cur_el_idx
+            _tail_paras = []
+            while _ei < len(elements):
+                _e = elements[_ei]
+                if _e['kind'] == 'anaf':
+                    break
+                if _e['kind'] != 'para':
+                    return False   # title page / sefer_title — not a simple tail
+                _ml = _e['lines'][cur_ln_off:] if _ei == cur_el_idx else _e['lines']
+                _vnl = sum(ld.get('nlines', 1) for ld in _ml)
+                _tp = {'lines': _ml, 'nlines': _vnl, 'is_para_end': True,
+                       'orig_el_idx': _ei,
+                       'source_idxs': list(_e.get('source_idxs', [_ei]))}
+                if _e.get('is_subhead'): _tp['is_subhead'] = True
+                _tail_paras.append(_tp)
+                _ei += 1
+            else:
+                return False   # reached end of book with no anaf — not a section tail
+            if not _tail_paras:
+                return False
+            _avail = body_avail(len(fn_lds_on_page))
+            _orn_res = _SECTION_ORN_RESERVE  # tail ends before an anaf → ornament drawn
+            _short_frac = float(getattr(S, 'SECTION_TAIL_SHORT_FRAC', 0.40))
+            _donor_min = float(getattr(S, 'SECTION_TAIL_DONOR_MIN_FRAC', 0.55))
+            _max_groups = int(getattr(S, 'SECTION_TAIL_PULL_MAX_GROUPS', 4))
+
+            def _run_height(prun):
+                if not prun:
+                    return 0.0
+                _c1, _c2, _e1, _e2, _l1, _l2 = _col_layout(prun)
+                _h1, _h2 = _col_raw_heights(prun, _c1, _c2, _e1, _e2, _l1, _l2)
+                _t1, _t2 = _compute_top_pads(_h1, _h2, _c1, _c2, prun)
+                return _col_height(prun, _c1, _c2, _e1, _e2, _l1, _l2,
+                                   e_top1=_t1, e_top2=_t2)
+
+            _tail_h = _run_height(_tail_paras)
+            if _tail_h + _orn_res >= _short_frac * _avail:
+                return False   # tail page already fills acceptably — leave it
+
+            # Snapshot for restore.
+            _snap = (list(acc_paras), list(acc_origins), list(acc_fn_lds),
+                     cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor)
+
+            def _pop_group():
+                nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+                _pulled = []
+                def _pop_one():
+                    nonlocal cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor
+                    _p = acc_paras.pop()
+                    _o = acc_origins.pop()
+                    cur_el_idx = _o['el_idx']; cur_ln_off = _o['ln_off']
+                    cur_fn_off = _o['fn_off']; fn_cursor = _o['fn_cursor']
+                    if _o['fn_lds_added'] > 0:
+                        del acc_fn_lds[-_o['fn_lds_added']:]
+                    _pulled.append(_p)
+                # any trailing subheads keep with the body below them
+                while acc_paras and acc_origins and acc_paras[-1].get('is_subhead'):
+                    _pop_one()
+                if not (acc_paras and acc_origins):
+                    return _pulled
+                _pop_one()  # one body paragraph
+                # subheads now exposed are this body's keep-with-next heads
+                while acc_paras and acc_origins and acc_paras[-1].get('is_subhead'):
+                    _pop_one()
+                return _pulled
+
+            # A footnote-bearing pulled paragraph is unsafe here (we would have to
+            # re-derive its footnote line-dicts for the tail page); decline the
+            # whole pull rather than risk corrupting footnote numbering.
+            _moved = []          # paras pulled back (donor-order; reversed = tail order)
+            _committed = False
+            _groups = 0
+            while acc_paras and _groups < _max_groups:
+                _grp = _pop_group()
+                if not _grp:
+                    break
+                # Footnote safety: if any pulled paragraph carries footnote
+                # markers, the rebuilt tail run would not re-emit its footnote
+                # line-dicts. Decline the whole redistribution (restore below).
+                _grp_has_fn = any(
+                    _count_fns_in_lines(p.get('lines', [])) > 0 for p in _grp)
+                if _grp_has_fn:
+                    _moved = _grp + _moved
+                    break  # leaves _committed False → snapshot restore
+                _groups += 1
+                _moved = _grp + _moved
+                _donor_h = _run_height(list(acc_paras)) if acc_paras else 0.0
+                _new_tail = [dict(p, is_para_end=p.get('is_para_end', True))
+                             for p in reversed(_moved)] + _tail_paras
+                _tail_h2 = _run_height(_new_tail)
+                _donor_frac = _donor_h / _avail if _avail else 0.0
+                _tail_frac = (_tail_h2 + _orn_res) / _avail if _avail else 0.0
+                _trace.log('section_tail_pull_try',
+                           f'page={self.page_num} groups={_groups} '
+                           f'donor_frac={_donor_frac:.2f} tail_frac={_tail_frac:.2f} '
+                           f'(donor_min={_donor_min:.2f} short={_short_frac:.2f})')
+                if _donor_frac < _donor_min:
+                    break   # pulling this much over-empties the donor — stop
+                if _tail_frac >= _short_frac:
+                    _committed = True   # tail now fills acceptably; minimal pull
+                    break
+            if not _committed:
+                acc_paras[:] = _snap[0]; acc_origins[:] = _snap[1]
+                acc_fn_lds[:] = _snap[2]
+                cur_el_idx, cur_ln_off, cur_fn_off, fn_cursor = \
+                    _snap[3], _snap[4], _snap[5], _snap[6]
+                _trace.log('section_tail_pull_none',
+                           f'page={self.page_num} no acceptable redistribution '
+                           f'(tail_h={_tail_h:.1f} avail={_avail:.1f})')
+                return False
+            _trace.log('section_tail_pull_applied',
+                       f'page={self.page_num} pulled {_groups} group(s) '
+                       f'({len(_moved)} paras) back to section tail; '
+                       f'cur_el_idx->{cur_el_idx}')
+            return True
+
         page_empty = True
         cur_el_idx, cur_ln_off, cur_fn_off = el_idx, line_off, fn_off
 
@@ -7982,6 +8236,7 @@ class PageLayout:
                                f'best_n=0, flushing acc ({len(acc_paras)} paras) and breaking',
                                acc_n=len(acc_paras))
                     _pullback_trailing_subheads()
+                    _section_tail_pull()
                     flush_acc()
                     page_empty = False
                     break
@@ -8032,6 +8287,12 @@ class PageLayout:
                     cur_el_idx += 1; cur_ln_off = 0; cur_fn_off = 0
             break
 
+        # ── Section-tail redistribution (anaf_break path) ──
+        # The page_full break already ran _section_tail_pull() before its flush;
+        # the anaf_break path breaks with acc_paras still populated, so run it
+        # here too (no-op when acc is already empty / not a section tail).
+        _section_tail_pull()
+
         # ── Last-resort balance bleed ──
         is_final_flush = (cur_el_idx >= len(elements))
         BLEED_THRESHOLD = ZERO_DIFF_TOL   # try bleed for any residual > 0.05pt
@@ -8054,8 +8315,38 @@ class PageLayout:
                 _best_res   = _bl_res
                 # Try all valid bleed amounts (exhaustive search for best balance)
                 _max_bleed = max(0, _last_nL - MIN_PART_LINES)
+                # If the element after this paragraph is a section heading, any
+                # bled lines become a LONE section-tail page (tail + closing
+                # ornament).  Bleeding for column balance there trades a small
+                # imbalance for the owner's "horrible" half-empty page, so cap
+                # the bleed to amounts whose tail still fills acceptably.
+                _bl_nxt_ei = _last_origin['el_idx'] + 1
+                _bl_tail_before_anaf = (
+                    _bl_nxt_ei < len(elements)
+                    and elements[_bl_nxt_ei]['kind'] == 'anaf'
+                    and _last_origin['ln_off'] == 0)  # whole para is on this page
+                _bl_short_frac = float(getattr(S, 'SECTION_TAIL_SHORT_FRAC', 0.40))
+                _bl_orn_res = _SECTION_ORN_RESERVE
+                _bl_avail = body_avail(len(fn_lds_on_page))
                 for _bleed in range(1, _max_bleed + 1):
                     _keep = _last_nL - _bleed
+                    if _bl_tail_before_anaf:
+                        # The bled lines form the next page's entire body.
+                        _bl_tail_lines = _last_para['lines'][_keep:]
+                        _bl_tp = [{'lines': _bl_tail_lines,
+                                   'nlines': sum(ld.get('nlines', 1) for ld in _bl_tail_lines),
+                                   'is_para_end': True,
+                                   'orig_el_idx': _last_origin['el_idx'],
+                                   'source_idxs': list(_last_para.get('source_idxs',
+                                                       [_last_origin['el_idx']]))}]
+                        _bl_c1t, _bl_c2t, _bl_e1t, _bl_e2t, _bl_l1t, _bl_l2t = _col_layout(_bl_tp)
+                        _bl_h1t, _bl_h2t = _col_raw_heights(_bl_tp, _bl_c1t, _bl_c2t,
+                                                            _bl_e1t, _bl_e2t, _bl_l1t, _bl_l2t)
+                        if (max(_bl_h1t, _bl_h2t) + _bl_orn_res) < _bl_short_frac * _bl_avail:
+                            _trace.log('bleed_tail_short_skip',
+                                       f'bleed={_bleed} would leave a too-short '
+                                       f'section-tail page before anaf, skipping')
+                            continue
                     # Guard: don't bleed if the bled lines would be an
                     # orphan on the next page.  Count total remaining lines
                     # of this element after the bleed.
@@ -8310,6 +8601,48 @@ class PageLayout:
                         blk['height'] = new_h
                         remaining_slack -= delta_h
                         _cur_imbal = abs(_sr_h1 - _sr_h2)
+
+        # ── Page-fill pass (bounded glue + bounded ELH) ──
+        # The bounded-glue/reflow stretch above can only spread EXISTING slack
+        # across stretchable gaps; on a section-tail page with very few gaps it
+        # leaves a large empty bottom (the owner's "horrible" half-empty page).
+        # This pass grows each col_pair toward the page bottom with bounded
+        # inter-paragraph glue THEN a bounded uniform leading feather (palot keeps
+        # ELH enabled), so columns bottom-align without breaking balance.  All
+        # caps are fractions of LH (settings-relative).
+        if (getattr(S, 'PAGE_FILL_ENABLE', True)
+                and not skip_stretch):
+            _pf_pairs = [b for b in plan if b['kind'] == 'col_pair']
+            if _pf_pairs:
+                # Recompute slack from the (possibly stretched) plan, then reserve
+                # the section-end ornament so we don't overrun it.
+                _pf_sim_y = text_top
+                for blk in plan:
+                    if blk['kind'] in ('sefer_title', 'anaf', 'anaf_sub', 'section'):
+                        _pf_sim_y -= blk.get('gap_above', 0.0)
+                        _pf_sim_y -= blk['height']
+                    else:
+                        if _pf_sim_y < text_top: _pf_sim_y -= PSEP
+                        _pf_sim_y -= blk['height']
+                _pf_orn_reserve = _SECTION_ORN_RESERVE if (
+                    is_section_end or cur_el_idx >= len(elements)) else 0.0
+                _pf_slack = _pf_sim_y - body_bottom_min - _pf_orn_reserve
+                _pf_max_gap_e = LH * float(getattr(S, 'PAGE_FILL_MAX_GAP_FRAC', 1.25))
+                _pf_max_elh = LH * float(getattr(S, 'PAGE_FILL_MAX_ELH_FRAC', 0.06))
+                if _pf_slack > LH * 0.5:
+                    _pf_before = _pf_slack
+                    _pf_allow_top = any(b.get('kind') == 'sefer_title' for b in plan)
+                    for blk in _pf_pairs:
+                        if _pf_slack <= LH * 0.25:
+                            break
+                        _pf_slack -= _fill_colpair_height(
+                            blk, _pf_slack, _pf_max_gap_e, _pf_max_elh,
+                            allow_subhead_top_pad=_pf_allow_top)
+                    if _pf_before - _pf_slack > 0.5:
+                        _trace.log('page_fill_applied',
+                                   f'page={self.page_num} filled '
+                                   f'{_pf_before - _pf_slack:.1f}pt of {_pf_before:.1f}pt '
+                                   f'slack (bounded glue + ELH, balance preserved)')
 
 
         # ── Render pass ──

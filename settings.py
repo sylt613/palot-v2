@@ -216,6 +216,25 @@ ALLOW_ORPHAN        = False  # avoid orphans unless stuck
 ALLOW_WIDOW         = True  # allow widows if needed (no indent on col2 first line)
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PAGE FILL  (grow a short page to the bottom; bottom-align columns)
+# ═══════════════════════════════════════════════════════════════════════════
+# When a page ends mid-section with significant bottom whitespace, fill it by
+# (1) bounded inter-paragraph glue, then (2) a bounded UNIFORM leading feather
+# (ELH).  Palot keeps ELH enabled (unlike kidushin's no-feather pages).  All
+# knobs are fractions of LH / column-height so they scale with body size.
+PAGE_FILL_ENABLE        = True   # master switch for the page-fill pass
+PAGE_FILL_MAX_GAP_FRAC  = 1.25   # max inter-paragraph glue per stretchable gap = LH * this
+PAGE_FILL_MAX_ELH_FRAC  = 0.06   # max uniform leading feather per line = LH * this (palot: ELH on)
+# Section-tail redistribution: when a donor page is about to break before a
+# section heading and the resulting section-tail page would be catastrophically
+# short, pull trailing paragraph group(s) back from the donor so both pages end
+# reasonably full.  Triggered only for true section tails (next element = anaf).
+SECTION_TAIL_PULL_ENABLE   = True
+SECTION_TAIL_SHORT_FRAC    = 0.40  # tail page is "too short" if filled < this fraction of avail
+SECTION_TAIL_DONOR_MIN_FRAC= 0.55  # never pull so much the donor drops below this fill fraction
+SECTION_TAIL_PULL_MAX_GROUPS = 4   # cap how many paragraph groups may move back
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LAST-LINE CENTERING
 # ═══════════════════════════════════════════════════════════════════════════
 LAST_LINE_CENTER    = True  # center the last line of each paragraph

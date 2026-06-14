@@ -4601,9 +4601,162 @@ def _optimize_line_fills(lines_of_words, col_width, font, size):
     return result
 
 
+def _kp_break_lines(words, col_width, width_fn, sp_w):
+    """Knuth–Plass optimal line breaking for one paragraph (ported from kidushin).
+
+    Models each inter-word space as TeX-style glue (natural sp_w, stretch Y, shrink
+    Z) and minimises total demerits = sum((line_penalty + badness)^2), where
+    badness = 100·|adjustment_ratio|³, capped at KP_MAX_BADNESS. Hebrew has no
+    hyphenation, so the only legal breakpoints are at inter-word glue. The final
+    line uses \\parfillskip semantics (set naturally, never justified, zero
+    badness). Falls back to an emergency-stretch pass then greedy, so it can never
+    fail to return lines. Returns a list of word-lists (same word objects in)."""
+    n = len(words)
+    if n <= 1:
+        return [list(words)] if n else []
+
+    Y   = sp_w * float(getattr(S, 'KP_SPACE_STRETCH', 0.50))
+    Z   = sp_w * float(getattr(S, 'KP_SPACE_SHRINK', 0.45))
+    LP  = float(getattr(S, 'KP_LINE_PENALTY', 10.0))
+    INF_BAD = float(getattr(S, 'KP_MAX_BADNESS', 100000.0))
+    RIVERW = float(getattr(S, 'KP_RIVER_WEIGHT', 0.0))
+    SBIAS = float(getattr(S, 'KP_STRETCH_BIAS', 2.0))
+    ADJ = float(getattr(S, 'KP_ADJ_DEMERITS', 0.0))
+
+    w = [width_fn(x) for x in words]
+    pref = [0.0] * (n + 1)
+    for i in range(n):
+        pref[i + 1] = pref[i] + w[i]
+
+    def natural(a, b):                       # words[a..b-1] with (b-a-1) spaces
+        return (pref[b] - pref[a]) + sp_w * (b - a - 1)
+
+    # River detection: bucket inter-word gap centres by x; penalise a line whose
+    # gap buckets coincide with the previous line's (a vertical "river").
+    _BUCKET = max(4.0, sp_w * 2.0)
+    _mask_cache = {}
+    def gapmask(i, j):
+        key = (i, j)
+        m = _mask_cache.get(key, -1)
+        if m != -1:
+            return m
+        g = j - i - 1
+        if g <= 0:
+            _mask_cache[key] = 0
+            return 0
+        gw = (col_width - (pref[j] - pref[i])) / g
+        m = 0
+        for k in range(g):
+            pos = (pref[i + k + 1] - pref[i]) + gw * (k + 0.5)
+            b = int(pos / _BUCKET)
+            if b >= 0:
+                m |= (1 << b)
+        _mask_cache[key] = m
+        return m
+
+    INF = float('inf')
+
+    def line_fitness(a, b):
+        gaps = (b - 1) - a
+        if gaps <= 0:
+            return 3
+        diff = col_width - natural(a, b)
+        if diff >= 0:
+            tot = gaps * Y
+            rr = (diff / tot) if tot > 0 else 2.0
+        else:
+            tot = gaps * Z
+            rr = -((-diff) / tot) if tot > 0 else -2.0
+        if rr < -0.5: return 0
+        if rr < 0.5:  return 1
+        if rr < 1.0:  return 2
+        return 3
+
+    def solve(emergency):
+        Yg = Y + emergency
+        dp   = [INF] * (n + 1)
+        prev = [-1] * (n + 1)
+        dp[0] = 0.0
+        for p in range(1, n + 1):
+            is_last = (p == n)
+            for a in range(p - 1, -1, -1):
+                if dp[a] == INF:
+                    continue
+                gaps = (p - 1) - a
+                L = natural(a, p)
+                r = 0.0
+                diff = 0.0
+                if is_last:
+                    if gaps > 0 and L > col_width + gaps * Z + 0.01:
+                        break
+                    bad = 0.0
+                elif gaps <= 0:
+                    bad = INF_BAD * 1.5
+                else:
+                    diff = col_width - L
+                    if diff >= 0:
+                        tot = gaps * Yg
+                        if tot <= 0:
+                            continue
+                        r = (diff / tot) * SBIAS
+                        bad = min(100.0 * (r ** 3), INF_BAD)
+                    else:
+                        need = -diff
+                        tot = gaps * Z
+                        if need > tot + 0.01:
+                            break
+                        r = need / tot if tot > 0 else INF
+                        bad = min(100.0 * (r ** 3), INF_BAD)
+                dem = dp[a] + (LP + bad) ** 2
+                # Over-cap monotone term: keep demerit strictly increasing in
+                # stretch past the saturation cap (else 0.57 vs 0.90 fill tie).
+                if not is_last and gaps > 0 and diff >= 0 and bad >= INF_BAD:
+                    dem += float(getattr(S, 'KP_OVERCAP_WEIGHT', 1.0)) * \
+                           (100.0 * (r ** 3) - INF_BAD)
+                if RIVERW > 0.0 and gaps > 0 and not is_last:
+                    pa = prev[a]
+                    if pa >= 0:
+                        overlap = gapmask(a, p) & gapmask(pa, a)
+                        if overlap:
+                            dem += RIVERW * bin(overlap).count('1')
+                if ADJ > 0.0 and gaps > 0 and a > 0:
+                    pa = prev[a]
+                    if pa >= 0:
+                        _fd = abs(line_fitness(a, p) - line_fitness(pa, a))
+                        if _fd > 1:
+                            dem += ADJ * (_fd - 1) * (_fd - 1)
+                if dem < dp[p]:
+                    dp[p] = dem
+                    prev[p] = a
+        if dp[n] == INF:
+            return None
+        cuts, p = [], n
+        while p > 0:
+            a = prev[p]
+            cuts.append((a, p))
+            p = a
+        cuts.reverse()
+        return [list(words[a:b]) for (a, b) in cuts]
+
+    res = solve(0.0)
+    if res is None:
+        res = solve(sp_w * float(getattr(S, 'KP_EMERGENCY_STRETCH', 1.0)))
+    if res is None:
+        res = None
+    return res
+
+
 def wrap_words_fn(words, col_width, font, size):
-    """Wrap a list of words (plain or tagged) into lines fitting col_width."""
+    """Wrap a list of words (plain or tagged) into lines fitting col_width.
+
+    Uses Knuth–Plass total-fit breaking (USE_KP_LINEBREAK) to even out interword
+    spacing across the paragraph; falls back to greedy + fill-variance optimiser."""
     sp = Wid(' ', font, size)
+    if getattr(S, 'USE_KP_LINEBREAK', False) and len(words) > 1:
+        kp = _kp_break_lines(words, col_width,
+                             lambda x: tw_w(x, font, size), sp)
+        if kp is not None:
+            return kp
     lines, cur, cur_w = [], [], 0
     for word in words:
         ww = tw_w(word, font, size)
@@ -4736,10 +4889,14 @@ def _just_target_space(font, size):
     tgt = size * em
     return tgt if tgt > nat else nat
 
-def _just_gap_and_charspace(tot, gaps, col_width, font, size, letter_gaps):
-    """Cascade for one justified line. Returns (gap_w, char_extra).
+def _just_gap_and_charspace(tot, gaps, col_width, font, size, letter_gaps, use_fx=True):
+    """Cascade for one justified line. Returns (gap_w, char_extra, fx).
     gap_w     : the rendered interword gap (capped).
     char_extra: uniform per-letter-gap spacing (points) to absorb the residual.
+    fx        : horizontal glyph-expansion scale (1.0 = none); the draw-time
+                pdfTeX-"hz" lever (ported from kidushin) that widens glyphs so the
+                residual gap excess drops to FX_TARGET_EXCESS — kills spacey rivers
+                without touching wrap/line-count/height (invisible to pagination).
 
     The cap is JUST_WORD_GAP_MAX_MULT x the natural font space (Mazal ~0.175em).
     WORD_SPACE_TARGET_EM raises the *target* the line packs toward (the gap floor),
@@ -4753,51 +4910,84 @@ def _just_gap_and_charspace(tot, gaps, col_width, font, size, letter_gaps):
     # so capped lines read evenly instead of all sitting at the hard ceiling.
     sp_target = _just_target_space(font, size)
     gap_floor = min(cap, max(sp_nat, sp_target))
-    if gw_nat <= cap:
-        return gw_nat, 0.0
-    # Aim to bring the gap down to gap_floor; absorb the difference as letter-
-    # spacing (up to its cap), and let any leftover settle back into the gap.
-    residual = (gw_nat - gap_floor) * gaps
     char_extra = 0.0
-    ls_max_em = float(getattr(S, 'JUST_LETTER_SPACE_MAX_EM', 0.02))
-    if letter_gaps > 0 and ls_max_em > 0:
-        ls_cap = letter_gaps * (size * ls_max_em)
-        use = min(residual, ls_cap)
-        char_extra = use / letter_gaps
-        residual -= use
-    # Anything letter-spacing couldn't absorb (rare, very few-word lines) goes
-    # back into the gap, reduced from its uncapped value. (Not clamped to cap:
-    # the line must still fill col_width exactly — conservation. Such residual
-    # lines are few and already much tighter than before.)
-    gap_w = gap_floor + (residual / gaps if residual > 0.01 else 0.0)
-    return gap_w, char_extra
+    if gw_nat <= cap:
+        gap_w = gw_nat
+    else:
+        # Aim to bring the gap down to gap_floor; absorb the difference as letter-
+        # spacing (up to its cap), and let any leftover settle back into the gap.
+        residual = (gw_nat - gap_floor) * gaps
+        ls_max_em = float(getattr(S, 'JUST_LETTER_SPACE_MAX_EM', 0.02))
+        if letter_gaps > 0 and ls_max_em > 0:
+            ls_cap = letter_gaps * (size * ls_max_em)
+            use = min(residual, ls_cap)
+            char_extra = use / letter_gaps
+            residual -= use
+        # Anything letter-spacing couldn't absorb (rare, very few-word lines) goes
+        # back into the gap, reduced from its uncapped value. (Not clamped to cap:
+        # the line must still fill col_width exactly — conservation.)
+        gap_w = gap_floor + (residual / gaps if residual > 0.01 else 0.0)
 
-def _word_tracked_w(vis_text, font, size, char_extra):
-    """Drawn width of a display-ordered word with uniform letter-spacing.
-    We add char_extra at the (n-1) INTERNAL slots only — no trailing space — so
-    the word's footprint is exact and positions never drift (the per-glyph
+    # ── Font-expansion (FX) lever — the mirror of letter-spacing, applied last ──
+    # When the resolved gap still rides past FX_TARGET_EXCESS above the natural
+    # space, widen the glyphs so the freed width lets the gap shrink to the target.
+    # Conservation: the line still fills col_width exactly (gap recomputed from f).
+    fx = 1.0
+    if (use_fx and getattr(S, 'FX_ENABLE', True) and sp_nat > 0 and tot > 0 and gaps > 0):
+        excess_cap = float(getattr(S, 'FX_TARGET_EXCESS', 0.5))
+        if (gap_w - sp_nat) / sp_nat > excess_cap:
+            fxmax = float(getattr(S, 'FX_MAX_EXPAND', 0.04))
+            if (gap_w - sp_nat) / sp_nat > float(getattr(S, 'FX_STUBBORN_TRIGGER', 1.0)):
+                fxmax = max(fxmax, float(getattr(S, 'FX_MAX_EXPAND_STUBBORN', 0.07)))
+            # Total letter-spacing ink to preserve while we widen the glyphs.
+            ls_total = char_extra * letter_gaps
+            # widen glyphs so the gap drops toward sp_nat*(1+excess_cap)
+            f = (col_width - gaps * sp_nat * (1.0 + excess_cap) - ls_total) / tot
+            f = max(1.0, min(1.0 + fxmax, f))
+            if f > 1.0 + 1e-6:
+                fx = f
+                gap_w = (col_width - tot * f - ls_total) / gaps
+    return gap_w, char_extra, fx
+
+def _word_tracked_w(vis_text, font, size, char_extra, fx=1.0):
+    """Drawn width of a display-ordered word with uniform letter-spacing and an
+    optional horizontal glyph-expansion scale fx. Each glyph's ink is fx-wider; the
+    char_extra letter-spacing is added at the (n-1) INTERNAL slots only — no trailing
+    space — so the word's footprint is exact and positions never drift (the per-glyph
     drawing below uses the identical advance)."""
-    base = Wid(vis_text, font, size)
+    base = Wid(vis_text, font, size) * (fx if fx and fx != 1.0 else 1.0)
     n = len(vis_text)
     if char_extra <= 1e-6 or n <= 1:
         return base
     return base + char_extra * (n - 1)
 
-def _draw_word_tracked(c, x_left, y, vis_text, font, size, char_extra):
-    """Draw a (display-ordered) word with uniform letter-spacing char_extra (pt)
-    inserted at the (n-1) internal glyph boundaries. Each glyph is positioned
-    explicitly so the drawn advance EXACTLY matches _word_tracked_w (no reliance
-    on PDF setCharSpace trailing-advance quirks → no leftward drift / overlap)."""
+def _draw_word_tracked(c, x_left, y, vis_text, font, size, char_extra, fx=1.0):
+    """Draw a (display-ordered) word with uniform letter-spacing char_extra (pt) and
+    optional horizontal glyph-expansion fx (1.0 = none). Each glyph is positioned
+    explicitly so the drawn advance EXACTLY matches _word_tracked_w (no reliance on
+    PDF setCharSpace trailing-advance quirks → no leftward drift / overlap). When fx
+    expands the glyphs, each glyph is drawn through a text object with setHorizScale
+    so the ink itself widens (pdfTeX hz); the scale is local to each glyph and never
+    leaks across text objects."""
     vis_text = livorna_fix_quotes(vis_text)
     n = len(vis_text)
-    if char_extra <= 1e-6 or n <= 1:
+    expand = bool(fx and abs(fx - 1.0) > 1e-6)
+    if char_extra <= 1e-6 and not expand:
         c.drawString(x_left, y, vis_text)
         return
     c.setFont(font, size)
     x = x_left
     for i, ch in enumerate(vis_text):
-        c.drawString(x, y, ch)
-        x += Wid(ch, font, size)
+        if expand:
+            to = c.beginText(x, y)
+            to.setFont(font, size)
+            to.setHorizScale(100.0 * fx)
+            to.textOut(ch)
+            c.drawText(to)
+            x += Wid(ch, font, size) * fx
+        else:
+            c.drawString(x, y, ch)
+            x += Wid(ch, font, size)
         if i < n - 1:
             x += char_extra
 
@@ -4849,12 +5039,12 @@ def draw_line_with_fn(c, words, font, size, x_right, y, col_width, last, fn_coun
             # must match _word_tracked_w (which spaces the n-1 internal slots).
             vis_words = [livorna_fix_quotes(vis(w)) for w in words]
             letter_gaps = sum(max(0, len(vw) - 1) for vw in vis_words)
-            gap_w, char_extra = _just_gap_and_charspace(
+            gap_w, char_extra, fx = _just_gap_and_charspace(
                 tot, gaps, col_width, font, size, letter_gaps)
             cx = x_right
             for i, vw in enumerate(vis_words):
-                tw = _word_tracked_w(vw, font, size, char_extra)
-                _draw_word_tracked(c, cx - tw, y, vw, font, size, char_extra)
+                tw = _word_tracked_w(vw, font, size, char_extra, fx)
+                _draw_word_tracked(c, cx - tw, y, vw, font, size, char_extra, fx)
                 cx -= tw
                 if i < gaps: cx -= gap_w
         return
@@ -4878,8 +5068,10 @@ def draw_line_with_fn(c, words, font, size, x_right, y, col_width, last, fn_coun
             max(0, len(livorna_fix_quotes(vis(tw_str(w)))) - 1)
             for w in words
             if not tw_has_fn(w) and tw_font(w, font) == font and tw_size(w, size) == size)
-        gap_w, char_extra = _just_gap_and_charspace(
-            tot, gaps, col_width, font, size, plain_letter_gaps)
+        # Mixed/fn lines: keep FX off (use_fx=False) so footnote markers and tagged
+        # fonts are never glyph-stretched; only the gap-cap + letter-spacing apply.
+        gap_w, char_extra, _fx = _just_gap_and_charspace(
+            tot, gaps, col_width, font, size, plain_letter_gaps, use_fx=False)
         cx = x_right
         for i, (w, ww) in enumerate(zip(words, wws)):
             is_plain = (not tw_has_fn(w) and tw_font(w, font) == font

@@ -104,7 +104,47 @@ JUST_LETTER_SPACE_MAX_EM = 0.013  # residual letter-spacing cap, <= +1.3% of FS 
 # touch (toward Bringhurst's ~0.24em optimum) makes the cap pack lines tighter at
 # the source. This affects ONLY the rendered fill, never the wrap/line-count, so
 # it cannot desync the measurer or shift pagination. 0 = use font space as-is.
-WORD_SPACE_TARGET_EM    = 0.235
+WORD_SPACE_TARGET_EM    = 0.25   # owner standard (kidushin parity 2026-06-14; was 0.235)
+
+# ── Line breaking (Knuth–Plass total-fit) — ported from kidushin ──────────────
+# When True, body paragraphs are broken with a global optimal (minimise total
+# demerits) algorithm instead of greedy first-fit + fill-variance heuristic. This
+# evens out inter-word spacing across the whole paragraph (the main driver of
+# spacey rivers). Hebrew has no hyphenation → only inter-word breakpoints. It
+# changes ONLY which words land on which line — line/page counts may shift, but the
+# measurer is unaffected (KP is used for the SAME measured widths). 0 ragged kept.
+USE_KP_LINEBREAK     = True
+# Inter-word glue (TeX-style), as a fraction of the natural space width. Mazal's
+# natural space is narrow, so the stretch unit must be on that order or normal full
+# lines score "too loose" and the optimiser degenerates.
+KP_SPACE_STRETCH     = 0.50   # +50% of natural space
+KP_SPACE_SHRINK      = 0.45   # how far a space may shrink (generous)
+# Bias toward tighter lines: stretching (loose, river-prone) lines penalised harder
+# than shrinking, so the optimiser packs a word in and shrinks rather than leaving a
+# gappy line. 1.0 = symmetric; >1 prefers shrinking over growing.
+KP_STRETCH_BIAS      = 2.00
+KP_MAX_BADNESS       = 100000.0  # badness cap (TeX inf_bad). High so the cubic
+                                 # gradient survives below ~0.9 fill (else the DP
+                                 # tie-breaks "one catastrophic + one perfect" line
+                                 # over "two decent" — the stubborn loose line bug).
+KP_LINE_PENALTY      = 10.0   # added to each line's badness before squaring
+KP_EMERGENCY_STRETCH = 1.0    # extra stretch (× space) granted in the fallback pass
+KP_OVERCAP_WEIGHT    = 1.0    # re-add clipped cubic past the cap (monotone gradient)
+KP_RIVER_WEIGHT      = 2500.0 # penalise vertically-stacked inter-word gaps
+KP_ADJ_DEMERITS      = 30000.0  # fitness-class adjacency demerit (even page color)
+
+# ── Font expansion (draw-time pdfTeX "hz" lever) — ported from kidushin ────────
+# When a justified body line's residual inter-word gap would still exceed
+# FX_TARGET_EXCESS (× natural space) after the gap-cap + letter-spacing cascade,
+# widen the glyphs horizontally (up to +FX_MAX_EXPAND) so the gap drops toward the
+# target. Kills spacey lines / rivers without touching wrap/line-count/height
+# (invisible to paginator/balancer/measurer/footnotes). ±4% is below the visible
+# threshold for this Hebrew face. Set FX_ENABLE=False to disable.
+FX_ENABLE            = True
+FX_MAX_EXPAND        = 0.04    # max horizontal glyph stretch (fraction; 0.04 = +4%)
+FX_TARGET_EXCESS     = 0.50    # gap excess (× natural space) we expand down toward
+FX_STUBBORN_TRIGGER  = 1.0     # a line still this loose sits at the packing limit —
+FX_MAX_EXPAND_STUBBORN = 0.07  # allow stronger glyph expansion for THAT line only
 DROPCAP_SIZE        = 12.8  # first word stays visibly larger than body
 DROPCAP_BODY_GAP    = 3.0  # gap between dropcap word and body text
 

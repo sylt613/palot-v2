@@ -8677,30 +8677,29 @@ class PageLayout:
                     _n1 = _cd_vlines(_c1d, _pr)
                     _n2 = _cd_vlines(_c2d, _pr)
                     # Per-line feather needed on the shorter column to equalize.
+                    # ONE-SIDED only (never feather both columns in opposite
+                    # directions — that makes the two columns' leading visibly
+                    # differ, which the owner rejects).  Kidushin lesson: the cap
+                    # is a HARD ceiling on the TOTAL per-column leading, not on the
+                    # increment — a column whose _compute_padding already spent
+                    # some feather must never be pushed past _eq_cap.
                     if _diff > 0:        # col1 taller → feather col2 (shorter)
                         _per_line = _diff / max(1, _n2)
+                        _new_elh = min(_eq_cap, _elh2 + _per_line)
+                        _elh2 = max(_elh2, _new_elh)
                     else:                # col2 taller → feather col1 (shorter)
                         _per_line = (-_diff) / max(1, _n1)
-                    # Apply ONLY when the feather stays imperceptible; otherwise
-                    # leave the columns top-aligned (no spacey stretch).
-                    if _per_line <= _eq_cap + 1e-6:
-                        if _diff > 0:
-                            _elh2 += _per_line
-                        else:
-                            _elh1 += _per_line
-                        blk['elh1'], blk['elh2'] = _elh1, _elh2
-                        _h1, _h2 = _col_raw_heights(_pr, _c1d, _c2d,
-                                                    _e1, _e2, _elh1, _elh2)
-                        _trace.log('section_end_equalize',
-                                   f'page={self.page_num} equalized columns '
-                                   f'(n1={_n1} n2={_n2} h1={_h1:.1f} h2={_h2:.1f} '
-                                   f'per_line={_per_line:.2f} '
-                                   f'elh1={_elh1:.2f} elh2={_elh2:.2f})')
-                    else:
-                        _trace.log('section_end_equalize',
-                                   f'page={self.page_num} top-aligned only '
-                                   f'(n1={_n1} n2={_n2} h1={_h1:.1f} h2={_h2:.1f} '
-                                   f'per_line={_per_line:.2f} > cap {_eq_cap:.2f})')
+                        _new_elh = min(_eq_cap, _elh1 + _per_line)
+                        _elh1 = max(_elh1, _new_elh)
+                    blk['elh1'], blk['elh2'] = _elh1, _elh2
+                    _h1, _h2 = _col_raw_heights(_pr, _c1d, _c2d,
+                                                _e1, _e2, _elh1, _elh2)
+                    _trace.log('section_end_equalize',
+                               f'page={self.page_num} equalized columns '
+                               f'(n1={_n1} n2={_n2} h1={_h1:.1f} h2={_h2:.1f} '
+                               f'per_line={_per_line:.2f} '
+                               f'elh1={_elh1:.2f} elh2={_elh2:.2f} '
+                               f'resid={abs(_h1-_h2):.2f})')
                 blk['height'] = max(_h1, _h2)
 
         simulated_y = text_top

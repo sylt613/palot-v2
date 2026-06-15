@@ -2750,6 +2750,22 @@ HEB_PAGE_NUMS = {
 def heb_page(n):
     return HEB_PAGE_NUMS.get(n, str(n))
 
+# Trailing geresh/apostrophe characters that may follow a Hebrew anaf number
+# (ASCII apostrophe, Hebrew geresh U+05F3, right single quote U+2019).
+_ANAF_GERESH_CHARS = "'׳’"
+
+def clean_anaf_label(label):
+    """Strip the trailing geresh/apostrophe from a ענף (anaf) number label.
+
+    Affects ONLY anaf headings (e.g. "ענף א'" -> "ענף א"); footnote/daf/siman
+    numerals are produced separately via heb_num and are untouched.
+    Gated by settings.ANAF_NUMBER_GERESH (default False = strip)."""
+    if getattr(S, 'ANAF_NUMBER_GERESH', True):
+        return label
+    if not label:
+        return label
+    return label.rstrip(_ANAF_GERESH_CHARS + ' ').rstrip()
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TEXT HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -7074,6 +7090,11 @@ def _draw_col_pair(c, para_run, c1d, c2d, e1, e2, y_top, fn_counter_before,
 class PageLayout:
 
     def __init__(self, items, out_pdf):
+        # Normalise anaf (heading1) labels: strip trailing geresh/apostrophe
+        # from the ענף number so body + TOC render "ענף א" not "ענף א'".
+        for _it in items:
+            if isinstance(_it, dict) and _it.get('type') == 'heading1' and _it.get('label'):
+                _it['label'] = clean_anaf_label(_it['label'])
         self.items = items
         self.out_pdf = out_pdf
         self.cv = rl_canvas.Canvas(out_pdf, pagesize=(PAGE_W, PAGE_H))

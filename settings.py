@@ -169,6 +169,7 @@ H1_TOP_GAP          = 28.0  # extra space above anaf heading (pt)
 H1_NEW_PAGE         = True  # heading 1 forces new page
 H1_ONE_COLUMN       = True  # heading 1 renders in 1-column mode
 H1_ORNAMENTS        = True  # ornaments around ענף label
+ANAF_NUMBER_GERESH  = False # if False, strip trailing geresh/apostrophe from ענף number (ענף א not ענף א׳)
 H1_ORNAMENT_CHAR    = "I"                    # Bergamot glyph for label ornaments
 H1_ORNAMENT_SIZE    = 13.0  # size of label ornaments
 H1_ORNAMENT_GAP     = 7.0  # gap between ornament and label text

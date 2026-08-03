@@ -1,0 +1,33 @@
+/data/palot_v2_siachlook/build_v2.py:3310: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  alpha_band = list(img.split()[3].getdata())  # just the alpha channel
+/data/palot_v2_siachlook/build_v2.py:3310: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  alpha_band = list(img.split()[3].getdata())  # just the alpha channel
+Loading fonts...
+Skipping missing ornament font: /root/fonts_extracted/Fonts (2)/BergamotOrnaments-3oK6.ttf
+Loading doc_parts.json...
+  Source:  /data/palot_v2_siachlook/doc_parts.json
+  Output:  /data/palot_v2_siachlook/output/palot_v2_13.5pt.pdf
+  Cover:   /root/covers/v10/shar_blatt_v36_printready.pdf
+  Found 101 content items
+    body: 57
+    heading1: 6
+    heading2: 37
+    sefer_title: 1
+
+Rendering to /data/palot_v2_siachlook/output/palot_v2_13.5pt.pdf...
+Saved: /data/palot_v2_siachlook/output/palot_v2_13.5pt.pdf
+  Job archive saved: /data/palot_v2_siachlook/output/jobs/20260624_020645/
+    manifest.json  — job parameters
+    layout_log.tsv — 119 rendered elements (human-readable)
+    layout_log.json — same data as JSON
+    trace_log.jsonl — 1369 trace events (full decision log)
+    trace_summary.txt — event counts by phase/type
+    qa_report.json — coverage + balance verification
+    qa_report.txt — human-readable QA summary
+  20 pages rendered
+
+Generating PNG previews (200 DPI)...
+  pdftoppm not available ([Errno 2] No such file or directory: 'pdftoppm') — skipping PNG previews
+  PDF available at: /data/palot_v2_siachlook/output/palot_v2_13.5pt.pdf
+
+Done!

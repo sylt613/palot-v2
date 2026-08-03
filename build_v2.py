@@ -61,6 +61,13 @@ if _auto_rename:
     else:
         S.OUT_PDF = os.path.join(S.OUT_DIR, "palaot.pdf")
 
+# Honour an explicit PALOT_OUT_PDF env override (size sweeps / batch builds, so
+# each run writes a distinct file instead of clobbering one name). Mirrors
+# build_kidushin.py; takes precedence over the variant auto-rename above.
+_env_out = os.environ.get('PALOT_OUT_PDF')
+if _env_out:
+    S.OUT_PDF = _env_out if os.path.isabs(_env_out) else os.path.join(S.OUT_DIR, _env_out)
+
 # ═══════════════════════════════════════════════════════════════════════════
 # HARFBUZZ TJ INJECTION — correct combining mark positioning
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4921,10 +4928,17 @@ def _just_gap_and_charspace(tot, gaps, col_width, font, size, letter_gaps, use_f
     a uniform, book-like interword rhythm rather than the font's cramped minimum."""
     gw_nat = (col_width - tot) / gaps
     sp_nat = Wid(' ', font, size)
-    cap = sp_nat * float(getattr(S, 'JUST_WORD_GAP_MAX_MULT', 1.5))
     # Pull capped lines down to the (wider) book target, not all the way to cap,
     # so capped lines read evenly instead of all sitting at the hard ceiling.
     sp_target = _just_target_space(font, size)
+    cap = sp_nat * float(getattr(S, 'JUST_WORD_GAP_MAX_MULT', 1.5))
+    # AUTO HEADROOM: the cap must never sit below the (wide) interword target —
+    # otherwise a wide WORD_SPACE_TARGET_EM on a narrow column gets clamped under
+    # its own target and the residual blows back into a few gaps (rivers) or the
+    # line over-packs and condenses (squashed letters). Guarantee the cap clears
+    # the target by 15% so the breaker's target is reachable and FX trims only the
+    # genuinely-too-loose lines — no manual JUST_WORD_GAP_MAX_MULT tuning needed.
+    cap = max(cap, sp_target * 1.15)
     gap_floor = min(cap, max(sp_nat, sp_target))
     char_extra = 0.0
     if gw_nat <= cap:

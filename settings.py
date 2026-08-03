@@ -65,8 +65,8 @@ FN_FONT_NAME    = "mazal"
 # ═══════════════════════════════════════════════════════════════════════════
 PAGE_W_IN       = 5.5  # page width in inches
 PAGE_H_IN       = 8.5  # page height in inches
-MARGIN_TOP      = 0.5  # top margin in inches
-MARGIN_BOTTOM   = 0.4  # bottom margin in inches
+MARGIN_TOP      = 0.40  # top margin in inches
+MARGIN_BOTTOM   = 0.30  # bottom margin in inches
 MARGIN_LEFT     = 0.5  # left/right (outer) margin in inches
 MARGIN_RIGHT    = 0.5  # left/right (outer) margin in inches
 # inner margin (spine) = same as outer for this book
@@ -86,9 +86,9 @@ NUM_COLS        = 2  # number of columns for body text
 # ═══════════════════════════════════════════════════════════════════════════
 # TYPOGRAPHY — sizes in points
 # ═══════════════════════════════════════════════════════════════════════════
-BODY_FONT_SIZE      = 12.2  # main body font size
-BODY_LINE_HEIGHT    = None                   # auto = size * LINE_HEIGHT_MULT
-LINE_HEIGHT_MULT    = 1.33  # line height multiplier
+BODY_FONT_SIZE      = 14.0
+BODY_LINE_HEIGHT    = None   # auto = size * LINE_HEIGHT_MULT (sefer-look 1.20)
+LINE_HEIGHT_MULT    = 1.25   # TZ-style leading sample
 
 # ── Justification: loose-line control (ported from kidushin) ──────────────────
 # Mazal's natural interword space is unusually narrow (~0.175em), so full
@@ -97,14 +97,14 @@ LINE_HEIGHT_MULT    = 1.33  # line height multiplier
 # space and absorb the residual as a hair of uniform LETTER-SPACING across the
 # line (Hebrew square script is non-connecting, so this is invisible — it is NOT
 # kashida). This kills spacey gaps WITHOUT changing line breaks or page count.
-JUST_WORD_GAP_MAX_MULT  = 1.5    # rendered gap target = 1.5x the natural space
+JUST_WORD_GAP_MAX_MULT  = 2.5   # cap = sp_nat*this must exceed the 0.40em target so lines resolve evenly (kidushin parity)
 JUST_LETTER_SPACE_MAX_EM = 0.013  # residual letter-spacing cap, <= +1.3% of FS / slot (barely perceptible, kidushin-like). Lowered from 0.04 (owner: letters read too loose). Residual the gap-cap can't absorb stays as a slightly wider word gap on a few lines — acceptable.
 # Draw-time target word-space: cap + letter-spacing are computed against
 # max(font-natural-space, size x WORD_SPACE_TARGET_EM). Widening the reference a
 # touch (toward Bringhurst's ~0.24em optimum) makes the cap pack lines tighter at
 # the source. This affects ONLY the rendered fill, never the wrap/line-count, so
 # it cannot desync the measurer or shift pagination. 0 = use font space as-is.
-WORD_SPACE_TARGET_EM    = 0.25   # owner standard (kidushin parity 2026-06-14; was 0.235)
+WORD_SPACE_TARGET_EM    = 0.40   # SM sefer-look wide interword (dynamic — needs MAX_MULT headroom below)
 
 # ── Line breaking (Knuth–Plass total-fit) — ported from kidushin ──────────────
 # When True, body paragraphs are broken with a global optimal (minimise total
@@ -159,12 +159,12 @@ FX_MAX_EXPAND_STUBBORN = 0.07  # allow stronger glyph expansion for THAT line on
 # squeezed (±3.5% is below the visible threshold for this Hebrew face).
 JUST_WORD_GAP_MIN_MULT = 0.90  # gap floor = 0.90x the natural font space (readable)
 FX_MAX_CONDENSE        = 0.06  # max horizontal glyph CONDENSE (fraction; 0.06 = -6%)
-DROPCAP_SIZE        = 12.8  # first word stays visibly larger than body
+DROPCAP_SIZE        = 15.0  # first word stays visibly larger than body
 DROPCAP_BODY_GAP    = 3.0  # gap between dropcap word and body text
 
 # ── Heading 1 (ענף) ──
-H1_FONT_SIZE        = 15.0  # ענף label size (surrounded by ornaments)
-H1_NAME_FONT_SIZE   = 17.0  # ענף name (anaf title) — bigger than label
+H1_FONT_SIZE        = 17.0  # ענף label size (surrounded by ornaments)
+H1_NAME_FONT_SIZE   = 19.0  # ענף name (anaf title) — bigger than label
 H1_TOP_GAP          = 28.0  # extra space above anaf heading (pt)
 H1_NEW_PAGE         = True  # heading 1 forces new page
 H1_ONE_COLUMN       = True  # heading 1 renders in 1-column mode
@@ -176,7 +176,7 @@ H1_ORNAMENT_GAP     = 7.0  # gap between ornament and label text
 H1_ORNAMENT_COLOR   = (0.486, 0.486, 0.486)  # gray ornaments
 
 # ── Heading 2 (in-column sub-heading) ──
-H2_FONT_SIZE        = 12.5  # same as body
+H2_FONT_SIZE        = 14.5  # same as body
 H2_FONT_NAME        = "pninamedium"         # match subheadings to Frankfurt heading style
 H2_CENTERED         = True  # centered within column
 H2_SPACE_BEFORE     = None                   # auto: PSEP * 1.0 (normal gap, no rules)
@@ -185,7 +185,7 @@ H2_KEEP_WITH_NEXT   = True  # must stay on same column as following par
 H2_LINE_HEIGHT_MULT = 1.3  # tighter line height for multi-line h2
 
 # ── Sefer title (first line of document) ──
-TITLE_FONT_SIZE     = 21.0  # title at top of first page
+TITLE_FONT_SIZE     = 24.0  # title at top of first page
 TITLE_FONT_NAME     = "pninamedium"          # EFT Frankfurt Bold (shared alias)
 
 # ── Inter-paragraph spacing ──
@@ -205,24 +205,24 @@ FOOTER_ENABLED      = False                  # no footer
 
 # ── Page number ──
 PGNUM_POSITION      = 'outside'  # "outside" = outer edge of page
-PGNUM_FONT_SIZE     = 13.0
+PGNUM_FONT_SIZE     = 15.0
 PGNUM_FONT_NAME     = "pninaregular"
 PGNUM_ORNAMENT      = True  # gray ornament next to page number
 PGNUM_ORN_CHAR      = "I"                    # Bergamot glyph
-PGNUM_ORN_SIZE      = 13.0
+PGNUM_ORN_SIZE      = 15.0
 PGNUM_ORN_COLOR     = (0.486, 0.486, 0.486)  # gray
 
 # ── Even page (verso) header: book title ──
 EVEN_HEADER_TEXT    = "auto"                 # "auto" = use BOOK_TITLE
 EVEN_HEADER_FONT    = "pninaregular"         # Pnina Regular
-EVEN_HEADER_SIZE    = 11.5
+EVEN_HEADER_SIZE    = 13.5
 EVEN_HEADER_POSITION = 'inside'  # inside = spine side
 
 # ── Odd page (recto) header: anaf label + name ──
 ODD_HEADER_FONT_LABEL  = "pninamedium"      # ענף label font (medium)
 ODD_HEADER_FONT_NAME   = "pninaregular"     # anaf name font (regular)
-ODD_HEADER_SIZE         = 13.0  # anaf number/label size
-ODD_HEADER_MAAR_SIZE    = 14.5  # maar title size (bigger than anaf)
+ODD_HEADER_SIZE         = 15.0  # anaf number/label size
+ODD_HEADER_MAAR_SIZE    = 16.5  # maar title size (bigger than anaf)
 ODD_HEADER_DIAMOND      = True  # diamond separator
 ODD_HEADER_DIAMOND_COLOR = (0.486, 0.486, 0.486)  # gray diamond
 ODD_HEADER_POSITION     = 'inside'  # inside = spine side
